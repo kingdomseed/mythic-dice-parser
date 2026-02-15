@@ -1,86 +1,366 @@
+import 'dart:collection';
 import 'dart:math';
 
-import 'results.dart';
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
+
+import 'enums.dart';
+import 'roll_result.dart';
+import 'rolled_die.dart';
 import 'utils.dart';
 
-/// A dice roller for M dice of N sides (e.g. `2d6`).
-/// A roll returns a list of ints.
-class DiceRoller with LoggingMixin {
-  /// Constructs a dice roller
-  DiceRoller([Random? r]) : _random = r ?? Random.secure();
+abstract class DiceRoller {
+  /// minimum dice to roll (0)
+  static const minDice = 0;
+
+  /// maximum dice to allow to be rolled (1k)
+  static const maxDice = 1000;
+
+  /// minimum sides of dice (2)
+  static const minSides = 2;
+
+  /// maximum sides of dice (100k)
+  static const maxSides = 100000;
+
+  /// default limit for rerolls/exploding/compounding to avoid getting stuck in loop
+  static const defaultRerollLimit = 1000;
+
+  static const defaultFudgeVals = [-1, -1, 0, 0, 1, 1];
+
+  /// return an Stream of ints. length == ndice, range: [min,nsides]
+  /// duplicates allowed.
+  Stream<int> roll({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+    DieType dieType = DieType.polyhedral,
+  });
+
+  /// return an Stream of results selected from the given vals. length == ndice.
+  /// results should be selected at random from vals.
+  /// duplicates are allowed.
+  Stream<T> rollVals<T>(
+    int ndice,
+    List<T> vals, {
+    DieType dieType = DieType.polyhedral,
+  });
+}
+
+/// A [DiceRoller] that consumes a fixed sequence of pre-rolled values.
+///
+/// This is useful when dice are rolled externally (physical dice, 3D dice, etc)
+/// and you want to feed those results into the parser to produce a normal
+/// [RollSummary] and detailed result tree.
+///
+/// Values are consumed in the order the parser requests rolls. If the parser
+/// requests more values than are available, a [StateError] is thrown.
+final class PreRolledDiceRoller extends DiceRoller {
+  PreRolledDiceRoller(Iterable<int> values) : _values = Queue<int>.of(values);
+
+  final Queue<int> _values;
+
+  int _nextValue() {
+    if (_values.isEmpty) {
+      throw StateError(
+        'PreRolledDiceRoller ran out of values. '
+        'The expression requested more dice rolls than were provided.',
+      );
+    }
+    return _values.removeFirst();
+  }
+
+  @override
+  Stream<int> roll({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    RangeError.checkValueInInterval(
+      ndice,
+      DiceRoller.minDice,
+      DiceRoller.maxDice,
+      'ndice',
+    );
+    RangeError.checkValueInInterval(
+      nsides,
+      DiceRoller.minSides,
+      DiceRoller.maxSides,
+      'nsides',
+    );
+
+    final max = min + nsides - 1;
+    for (var i = 0; i < ndice; i++) {
+      final value = _nextValue();
+      RangeError.checkValueInInterval(value, min, max, 'preRolledValue');
+      yield value;
+    }
+  }
+
+  @override
+  Stream<T> rollVals<T>(
+    int ndice,
+    List<T> vals, {
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    RangeError.checkValueInInterval(
+      ndice,
+      DiceRoller.minDice,
+      DiceRoller.maxDice,
+      'ndice',
+    );
+
+    if (T != int) {
+      throw UnsupportedError(
+        'PreRolledDiceRoller only supports rollVals for int values.',
+      );
+    }
+
+    final allowed = vals.cast<int>();
+    for (var i = 0; i < ndice; i++) {
+      final value = _nextValue();
+      if (!allowed.contains(value)) {
+        throw RangeError.value(
+          value,
+          'preRolledValue',
+          'Value is not in the allowed set: $allowed',
+        );
+      }
+      yield value as T;
+    }
+  }
+}
+
+/// A [DiceRoller] that delegates roll requests to callbacks.
+///
+/// This is intended for advanced use cases like interactive dice prompts or
+/// integrations with 3D dice engines that can produce results on demand.
+final class CallbackDiceRoller extends DiceRoller {
+  CallbackDiceRoller({
+    required this.rollCallback,
+    required this.rollValsCallback,
+  });
+
+  final Future<List<int>> Function({
+    required int ndice,
+    required int nsides,
+    required int min,
+    required DieType dieType,
+  })
+  rollCallback;
+
+  final Future<List<T>> Function<T>(
+    int ndice,
+    List<T> vals, {
+    required DieType dieType,
+  })
+  rollValsCallback;
+
+  @override
+  Stream<int> roll({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    final results = await rollCallback(
+      ndice: ndice,
+      nsides: nsides,
+      min: min,
+      dieType: dieType,
+    );
+    yield* Stream<int>.fromIterable(results);
+  }
+
+  @override
+  Stream<T> rollVals<T>(
+    int ndice,
+    List<T> vals, {
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    final results = await rollValsCallback<T>(ndice, vals, dieType: dieType);
+    yield* Stream<T>.fromIterable(results);
+  }
+}
+
+/// a dice roller that uses an RNG
+class RNGRoller extends DiceRoller {
+  RNGRoller([Random? random]) : _random = random ?? Random.secure();
 
   final Random _random;
 
-  /// minimum dice to roll (0)
-  static const int minDice = 0;
+  /// select ndice random items from the list of values. duplicates are possible
+  Iterable<T> selectNFromVals<T>(int ndice, List<T> vals) => [
+    for (var i = 0; i < ndice; i++) vals[_random.nextInt(vals.length)],
+  ];
 
-  /// maximum dice to allow to be rolled (1k)
-  static const int maxDice = 1000;
+  /// return an iterable of ndice random integer values in range [min,nsides]
+  Iterable<int> selectN({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+  }) => [for (int i = 0; i < ndice; i++) _random.nextInt(nsides) + min];
 
-  /// minimum sides of dice (2)
-  static const int minSides = 2;
+  @override
+  Stream<int> roll({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    RangeError.checkValueInInterval(
+      ndice,
+      DiceRoller.minDice,
+      DiceRoller.maxDice,
+      'ndice',
+    );
+    RangeError.checkValueInInterval(
+      nsides,
+      DiceRoller.minSides,
+      DiceRoller.maxSides,
+      'nsides',
+    );
+    for (final i in selectN(ndice: ndice, nsides: nsides, min: min)) {
+      yield i;
+    }
+  }
 
-  /// maximum sides of dice (100k)
-  static const int maxSides = 100000;
+  @override
+  Stream<T> rollVals<T>(
+    int ndice,
+    List<T> vals, {
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    RangeError.checkValueInInterval(
+      ndice,
+      DiceRoller.minDice,
+      DiceRoller.maxDice,
+      'ndice',
+    );
+    for (final i in selectNFromVals(ndice, vals)) {
+      yield i;
+    }
+  }
+}
 
-  /// default limit to # of times dice rolls can explode (100)
-  static const int defaultExplodeLimit = 100;
+/// A dice roller for standard polyhedral dice, fudge dice, etc.
+class DiceResultRoller with LoggingMixin {
+  /// Constructs a dice roller
+  DiceResultRoller([DiceRoller? r])
+    : _diceRoller = r ?? RNGRoller(Random.secure());
 
-  /// Roll ndice of nsides and return results as list.
-  RollResult roll(int ndice, int nsides, [String msg = '']) {
-    RangeError.checkValueInInterval(ndice, minDice, maxDice, 'ndice');
-    RangeError.checkValueInInterval(nsides, minSides, maxSides, 'nsides');
+  final DiceRoller _diceRoller;
+
+  Future<RollResult> reroll(RolledDie rolledDie, [String msg = '']) async {
+    switch (rolledDie.dieType) {
+      case DieType.polyhedral:
+        return roll(1, rolledDie.nsides, msg);
+      case DieType.fudge:
+        return rollFudge(1, msg);
+      case DieType.d66:
+        return rollD66(1, msg);
+      case DieType.nvals:
+        return rollVals(1, rolledDie.potentialValues, msg);
+      default:
+        return RollResult(
+          expression: rolledDie.result.toString(),
+          opType: OpType.value,
+          results: [RolledDie.singleVal(result: rolledDie.result)],
+        );
+    }
+  }
+
+  Future<RollResult> rollD66(int ndice, [String msg = '']) async {
+    final results = <RolledDie>[];
+    final discarded = <RolledDie>[];
+    for (var i = 0; i < ndice; i++) {
+      final digits = await _diceRoller
+          .roll(ndice: 2, nsides: 6, dieType: DieType.d66)
+          .toList();
+      logger.finest(() => 'roll ${ndice}D66 => $digits $msg');
+      final tens = digits[0];
+      final ones = digits[1];
+      final total = tens * 10 + ones;
+      final rolled = [
+        ...digits.map(
+          (i) => RolledDie.polyhedral(result: i, nsides: 6, discarded: true),
+        ),
+      ];
+      discarded.addAll(rolled);
+      results.add(RolledDie.d66(result: total, from: rolled));
+    }
+    logger.finest(
+      () => 'roll ${ndice}D66 => $results {discarded: $discarded} $msg',
+    );
+    return RollResult(
+      expression: toString(),
+      opType: OpType.rollD66,
+      results: results,
+      discarded: discarded,
+    );
+  }
+
+  /// Roll ndice of nsides and return results
+  Future<RollResult> roll(int ndice, int nsides, [String msg = '']) async {
     // nextInt is zero-inclusive; add 1 so result will be in range 1-nsides
-    final results = [
-      for (int i = 0; i < ndice; i++) _random.nextInt(nsides) + 1,
-    ];
+    final results = await _diceRoller
+        .roll(ndice: ndice, nsides: nsides)
+        .toList();
     logger.finest(() => 'roll ${ndice}d$nsides => $results $msg');
     return RollResult(
       expression: '${ndice}d$nsides',
       opType: OpType.rollDice,
-      metadata: RollMetadata(rolled: results),
-      ndice: ndice,
-      nsides: nsides,
-      results: results,
+      results: [
+        ...results.map((i) => RolledDie.polyhedral(result: i, nsides: nsides)),
+      ],
     );
   }
 
-  static const _fudgeVals = [-1, -1, 0, 0, 1, 1];
-
-  /// select n items from the list of values
-  List<T> selectN<T>(int n, List<T> vals) => [
-        for (var i = 0; i < n; i++) vals[_random.nextInt(vals.length)],
-      ];
-
   /// Roll N fudge dice, return results
-  RollResult rollFudge(int ndice) {
-    RangeError.checkValueInInterval(ndice, minDice, maxDice, 'ndice');
-    final results = selectN(ndice, _fudgeVals);
+  Future<RollResult> rollFudge(int ndice, [String msg = '']) async {
+    final results = await _diceRoller
+        .rollVals(ndice, DiceRoller.defaultFudgeVals, dieType: DieType.fudge)
+        .toList();
 
-    logger.finest(() => 'roll ${ndice}dF => $results');
+    logger.finest(() => 'roll ${ndice}dF => $results $msg');
 
     return RollResult(
       expression: '${ndice}dF',
       opType: OpType.rollFudge,
-      metadata: RollMetadata(rolled: results),
-      ndice: ndice,
-      results: results,
+      results: [...results.map((i) => RolledDie.fudge(result: i))],
     );
   }
 
   /// Roll N fudge dice, return results
-  RollResult rollVals(int ndice, List<int> sideVals) {
-    RangeError.checkValueInInterval(ndice, minDice, maxDice, 'ndice');
-    final results = selectN(ndice, sideVals);
+  Future<RollResult> rollVals(
+    int ndice,
+    IList<int> sideVals, [
+    String msg = '',
+  ]) async {
+    final results = await _diceRoller
+        .rollVals(
+          ndice,
+          sideVals.toList(growable: false),
+          dieType: DieType.nvals,
+        )
+        .toList();
 
-    logger.finest(() => 'roll ${ndice}d$sideVals => $results');
+    logger.finest(
+      () => 'roll ${ndice}d${sideVals.toString(false)} => $results $msg',
+    );
 
     return RollResult(
       expression: '${ndice}d$sideVals',
       opType: OpType.rollVals,
-      metadata: RollMetadata(rolled: results),
-      ndice: ndice,
-      results: results,
+      results: [
+        ...results.map(
+          (i) => RolledDie(
+            result: i,
+            nsides: sideVals.length,
+            dieType: DieType.nvals,
+            potentialValues: sideVals,
+          ),
+        ),
+      ],
     );
   }
 }

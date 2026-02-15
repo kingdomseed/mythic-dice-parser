@@ -17,14 +17,15 @@ void main() {
     staticMockRandom = MockRandom();
     // NOTE: this mocks the random number generator to always return '1'
     //    -- that means the dice-roll is '2' (since rolls are 1-based)
-    when(
-      () => staticMockRandom.nextInt(any()),
-    ).thenReturn(1);
+    when(() => staticMockRandom.nextInt(any())).thenReturn(1);
   });
   void staticRandTest(String name, String input, int expectedTotal) {
-    test('$name - $input', () {
+    test('$name - $input', () async {
       expect(
-        DiceExpression.create(input, staticMockRandom).roll().total,
+        (await DiceExpression.create(
+          input,
+          roller: RNGRoller(staticMockRandom),
+        ).roll()).total,
         equals(expectedTotal),
       );
     });
@@ -34,15 +35,18 @@ void main() {
     String testName,
     String inputExpr,
     int? expectedTotal, {
-    List<int>? expectedResults,
-    RollMetadata? expectedMetadata,
+    Iterable<int>? expectedResults,
     int? successCount,
     int? failureCount,
     int? critSuccessCount,
     int? critFailureCount,
+    bool? verifyResultOrder,
   }) {
-    test('$testName - $inputExpr', () {
-      final rollSummary = DiceExpression.create(inputExpr, seededRandom).roll();
+    test('$testName - $inputExpr', () async {
+      final rollSummary = await DiceExpression.create(
+        inputExpr,
+        roller: RNGRoller(seededRandom),
+      ).roll();
       if (expectedTotal != null) {
         expect(
           rollSummary.total,
@@ -51,63 +55,39 @@ void main() {
         );
       }
       if (expectedResults != null) {
+        final actualResults = rollSummary.results.map((d) => d.result).toList();
         expect(
-          rollSummary.results,
-          equals(expectedResults),
+          actualResults,
+          verifyResultOrder ?? true
+              ? unorderedEquals(expectedResults)
+              : equals(expectedResults),
           reason: 'mismatching results',
-        );
-      }
-      if (expectedMetadata != null) {
-        expect(
-          rollSummary.metadata,
-          equals(expectedMetadata),
-          reason: 'mismatching roll metadata',
         );
       }
       if (successCount != null) {
         expect(
-          rollSummary.hasSuccesses,
-          equals(successCount > 0),
-          reason: 'summary missing success',
-        );
-        expect(
-          rollSummary.metadata.score.successCount,
+          rollSummary.successCount,
           equals(successCount),
           reason: 'mismatched success count',
         );
       }
       if (failureCount != null) {
         expect(
-          rollSummary.hasFailures,
-          equals(failureCount > 0),
-          reason: 'summary missing success',
-        );
-        expect(
-          rollSummary.metadata.score.failureCount,
+          rollSummary.failureCount,
           equals(failureCount),
           reason: 'mismatched success count',
         );
       }
       if (critSuccessCount != null) {
         expect(
-          rollSummary.hasCritSuccesses,
-          equals(critSuccessCount > 0),
-          reason: 'summary missing success',
-        );
-        expect(
-          rollSummary.metadata.score.critSuccessCount,
+          rollSummary.critSuccessCount,
           equals(critSuccessCount),
           reason: 'mismatched success count',
         );
       }
       if (critFailureCount != null) {
         expect(
-          rollSummary.hasCritFailures,
-          equals(critFailureCount > 0),
-          reason: 'summary missing success',
-        );
-        expect(
-          rollSummary.metadata.score.critFailureCount,
+          rollSummary.critFailureCount,
           equals(critFailureCount),
           reason: 'mismatched success count',
         );
@@ -142,15 +122,6 @@ void main() {
       '4d6#s#f#cs#cf',
       14,
       expectedResults: const [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6],
-          failures: [1],
-          critSuccesses: [6],
-          critFailures: [1],
-        ),
-      ),
       successCount: 1,
       failureCount: 1,
       critSuccessCount: 1,
@@ -161,13 +132,6 @@ void main() {
       '4d6#s6#f1',
       14,
       expectedResults: const [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6],
-          failures: [1],
-        ),
-      ),
       successCount: 1,
       failureCount: 1,
       critSuccessCount: 0,
@@ -178,13 +142,6 @@ void main() {
       '4d6#s=6#f=1',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6],
-          failures: [1],
-        ),
-      ),
       successCount: 1,
       failureCount: 1,
       critSuccessCount: 0,
@@ -196,15 +153,6 @@ void main() {
       '4d6#s>4#f<=2#cs>5#cf<2',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6, 5],
-          failures: [2, 1],
-          critSuccesses: [6],
-          critFailures: [1],
-        ),
-      ),
       successCount: 2,
       failureCount: 2,
       critSuccessCount: 1,
@@ -216,13 +164,8 @@ void main() {
       '4d6#s>=4#f<2',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6, 5],
-          failures: [1],
-        ),
-      ),
+      successCount: 2,
+      failureCount: 1,
     );
 
     seededRandTest(
@@ -230,27 +173,17 @@ void main() {
       '4d6#s<2#f>5',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [1],
-          failures: [6],
-        ),
-      ),
+      successCount: 1,
+      failureCount: 1,
     );
     seededRandTest(
       'critical success is also a success',
       '4d6 #s>=5 #cs=6 #f=1',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6, 5],
-          failures: [1],
-          critSuccesses: [6],
-        ),
-      ),
+      failureCount: 1,
+      successCount: 2,
+      critSuccessCount: 1,
     );
 
     seededRandTest(
@@ -258,15 +191,10 @@ void main() {
       '4d6 #s>=5 #cs=6 #f<=2 #cf',
       14,
       expectedResults: [6, 2, 1, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          successes: [6, 5],
-          failures: [2, 1],
-          critSuccesses: [6],
-          critFailures: [1],
-        ),
-      ),
+      successCount: 2,
+      failureCount: 2,
+      critSuccessCount: 1,
+      critFailureCount: 1,
     );
   });
 
@@ -302,9 +230,29 @@ void main() {
     seededRandTest('count > (missing from result)', '4d6#>6', 0);
     seededRandTest('count #', '4d6#', 4);
     seededRandTest('count # after drop', '4d6-<2#', 3);
-    seededRandTest('count # after drop', '4d6#1', 1);
-    seededRandTest('count # after drop', '4d6#=1', 1);
-    seededRandTest('count arith result', '(4d6+1)#1', 2);
+    seededRandTest('count # missing equals', '4d6#1', 1);
+    seededRandTest('count # with equals', '4d6#=1', 1);
+    // this only counts one if you use equals sign.
+    seededRandTest('count arith result - #1', '(4d6+1)#1', 2);
+    seededRandTest('count arith result - #=1', '(4d6+1)#=1', 2);
+    seededRandTest('count arith result - #', '(4d6+1)#', 5);
+    seededRandTest(
+      'count arith result - #=1',
+      '(4d6+1)#s#f',
+      15,
+      expectedResults: [1, 6, 2, 5, 1],
+      successCount: 1,
+      failureCount: 1, // the 1(val) does not count as a failure
+    );
+
+    seededRandTest(
+      'count arith result - #=1',
+      '(4d6+1)#s#f=1',
+      15,
+      expectedResults: [1, 6, 2, 5, 1],
+      successCount: 1,
+      failureCount: 2,
+    );
 
     // 1234 seed will return  [1, -1, -1, 1, 0, 1]
     seededRandTest('count fudge', '6dF#', 6);
@@ -328,10 +276,7 @@ void main() {
     ];
     for (final v in invalids) {
       test('invalid count - $v', () {
-        expect(
-          () => DiceExpression.create(v).roll(),
-          throwsFormatException,
-        );
+        expect(() => DiceExpression.create(v).roll(), throwsFormatException);
       });
     }
   });
@@ -390,18 +335,24 @@ void main() {
 
     test('missing clamp target', () {
       expect(
-        () => DiceExpression.create('6d6 C<', seededRandom).roll(),
+        () => DiceExpression.create(
+          '6d6 C<',
+          roller: RNGRoller(seededRandom),
+        ).roll(),
         throwsFormatException,
       );
     });
   });
 
   group('listeners', () {
-    test('basic', () {
-      final dice = DiceExpression.create('2d6 kh', seededRandom);
+    test('basic', () async {
+      final dice = DiceExpression.create(
+        '2d6 kh',
+        roller: RNGRoller(seededRandom),
+      );
       final results = <RollResult>[];
       final summaries = <RollSummary>[];
-      dice.roll(
+      await dice.roll(
         onRoll: (rr) {
           results.add(rr);
         },
@@ -409,41 +360,31 @@ void main() {
           summaries.add(rs);
         },
       );
-      const rrRoll = RollResult(
+      final rrRoll = RollResult(
         expression: '(2d6)',
         opType: OpType.rollDice,
-        nsides: 6,
-        ndice: 2,
-        results: [2, 6],
-        metadata: RollMetadata(
-          rolled: [2, 6],
-        ),
+        results: [
+          RolledDie.polyhedral(result: 6, nsides: 6),
+          RolledDie.polyhedral(result: 2, nsides: 6),
+        ],
       );
-      const rrDrop = RollResult(
+      final rrDrop = RollResult(
         expression: '((2d6) kh )',
         opType: OpType.drop,
-        nsides: 6,
-        ndice: 2,
-        results: [6],
-        metadata: RollMetadata(
-          discarded: [2],
-        ),
+        results: [RolledDie.polyhedral(result: 6, nsides: 6)],
+        discarded: [
+          RolledDie(
+            result: 2,
+            nsides: 6,
+            dieType: DieType.polyhedral,
+            discarded: true,
+          ),
+        ],
         left: rrRoll,
       );
       final expectedSummary = RollSummary(detailedResults: rrDrop);
-      expect(
-        results,
-        equals([
-          rrRoll,
-          rrDrop,
-        ]),
-      );
-      expect(
-        summaries,
-        equals([
-          expectedSummary,
-        ]),
-      );
+      expect(results, equals([rrRoll, rrDrop]));
+      expect(summaries, equals([expectedSummary]));
     });
   });
 
@@ -474,7 +415,8 @@ void main() {
 
     test('missing nsides', () {
       expect(
-        () => DiceExpression.create('6d', seededRandom).roll(),
+        () =>
+            DiceExpression.create('6d', roller: RNGRoller(seededRandom)).roll(),
         throwsFormatException,
       );
     });
@@ -485,13 +427,7 @@ void main() {
       '(((10d6 r=3)kh2 #s>5)#f<2)+2',
       14,
       expectedResults: [6, 6, 2],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5, 3, 5, 1, 4, 6, 5, 6],
-        discarded: [3, 6, 5, 5, 5, 4, 2, 1, 1],
-        score: RollScore(
-          successes: [6, 6],
-        ),
-      ),
+      successCount: 2,
     );
 
     seededRandTest(
@@ -499,14 +435,8 @@ void main() {
       '(4d6#s<=2#f>=5) + 1',
       15,
       expectedResults: [6, 2, 1, 5, 1],
-      expectedMetadata: const RollMetadata(
-        rolled: [6, 2, 1, 5],
-        score: RollScore(
-          // `+ 1` isn't included in success, since it's after parens
-          successes: [2, 1],
-          failures: [6, 5],
-        ),
-      ),
+      successCount: 2,
+      failureCount: 2,
     );
 
     seededRandTest(
@@ -514,10 +444,6 @@ void main() {
       '(((4d6 kh3) + (4d6 kh2))kh3)',
       16,
       expectedResults: [6, 5, 5],
-      expectedMetadata: const RollMetadata(
-        rolled: [1, 2, 5, 6, 1, 3, 4, 5],
-        discarded: [1, 3, 1, 4, 2],
-      ),
     );
   });
 
@@ -615,6 +541,9 @@ void main() {
     seededRandTest('compounding dice', '9d6!!o<=3', 50);
     seededRandTest('compounding dice', '9d6!!o1', 44);
 
+    seededRandTest('penetrating dice', '9d6p', 45);
+    seededRandTest('penetrating dice', '9d6p4', 50);
+
     seededRandTest('explode arith result', '(9d6+3)!', 51);
 
     // explode, then count 6's
@@ -628,17 +557,53 @@ void main() {
     seededRandTest('differing nsides addition', '4dF + 6dF', 2);
     // fudge dice can be added to [1, -1, -1, 1]
     seededRandTest('differing nsides addition', '4dF + 1', 1);
-    seededRandTest(
-      'fudge add to d6',
-      '4d6+4dF',
-      14,
-    );
+    seededRandTest('fudge add to d6', '4d6+4dF', 14);
     seededRandTest('fudge add to d6', '4dF+4d6', 13);
 
-    test('multiple rolls is multiple results', () {
-      final dice = DiceExpression.create('2d6', seededRandom);
-      expect(dice.roll().total, 8);
-      expect(dice.roll().total, 6);
+    seededRandTest(
+      'sorted add',
+      '(1d4+1d6+1d8+1d10) s',
+      20,
+      expectedResults: [2, 4, 5, 9],
+      verifyResultOrder: true,
+    );
+    seededRandTest(
+      'sorted comma',
+      '(1d4,1d6,1d8,1d10) s',
+      20,
+      expectedResults: [2, 4, 5, 9],
+      verifyResultOrder: true,
+    );
+    seededRandTest(
+      'unsorted add',
+      '(1d4+1d6+1d8+1d10)',
+      20,
+      expectedResults: [4, 2, 5, 9],
+      verifyResultOrder: true,
+    );
+    seededRandTest(
+      'unsorted comma',
+      '(1d4,1d6,1d8,1d10)',
+      20,
+      expectedResults: [4, 2, 5, 9],
+      verifyResultOrder: true,
+    );
+
+    seededRandTest(
+      'scored comma',
+      '(1d4,1d4p,1d4!,1d4!!)#s>=4',
+      14,
+      expectedResults: [4, 4, 3, 3],
+      successCount: 2,
+    );
+
+    test('multiple rolls is multiple results', () async {
+      final dice = DiceExpression.create(
+        '2d6',
+        roller: RNGRoller(seededRandom),
+      );
+      expect((await dice.roll()).total, 8);
+      expect((await dice.roll()).total, 6);
     });
 
     test('create dice with real random', () {
@@ -649,170 +614,463 @@ void main() {
     });
 
     test('string method returns expr', () {
-      final dice = DiceExpression.create('2d6# + 5d6!>=5 + 5D66', seededRandom);
+      final dice = DiceExpression.create(
+        '2d6# + 5d6!>=5 + 5D66',
+        roller: RNGRoller(seededRandom),
+      );
       expect(dice.toString(), '((2d6) # (( + ((5d6) !>= 5)) + (5D66)))');
     });
 
     test('invalid dice str', () {
       expect(
-        () => DiceExpression.create('1d5 + x2', seededRandom).roll(),
+        () => DiceExpression.create(
+          '1d5 + x2',
+          roller: RNGRoller(seededRandom),
+        ).roll(),
         throwsFormatException,
       );
     });
-    final invalids = [
-      '4!',
-      '4dF!',
-      '4dF!!',
-      '4dFr',
-      '4D66!',
-      '4D66!!',
-      '4D66 r',
-    ];
+
+    seededRandTest('no-op explode', '4!', 4);
+    seededRandTest('no-op compound', '4!!', 4);
+
+    seededRandTest('no-op explode', '4dF!', 0);
+    seededRandTest('no-op compound', '4dF!!', 0);
+    seededRandTest('no-op explode', '4d66!', 128);
+    seededRandTest('no-op compound', '4d66!!', 128);
+    final invalids = ['4dFr', '4D66 r'];
     for (final i in invalids) {
       test('invalid - $i', () {
         expect(
-          () => DiceExpression.create(i, seededRandom).roll(),
+          () =>
+              DiceExpression.create(i, roller: RNGRoller(seededRandom)).roll(),
           throwsFormatException,
         );
       });
     }
 
-    test('toString', () {
+    test('toString', () async {
       // mocked responses should return rolls of 6, 2, 1, 5
       final dice = DiceExpression.create(
         '(4d(3+3)!  + (2+2)d6) #cs #cf #s #f',
-        seededRandom,
+        roller: RNGRoller(seededRandom),
       );
-      final out = dice.roll().toString();
+      final out = (await dice.roll()).toString();
       expect(
         out,
-        equals(
-          '(((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) ===> RollSummary(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {rolled: [6, 2, 1, 5, 3, 5, 1, 4, 6], score: {successes: [6, 6], failures: [1, 1], critSuccesses: [6, 6], critFailures: [1, 1]}})',
+        equalsIgnoringWhitespace(
+          '(((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) ===> RollSummary(total: 33, results: [1(d6✗❌), 1(d6✗❌), 6(d6💣✓✅), 6(d6✓✅), 3(d6🔥), 2(d6), 5(d6), 5(d6), 4(d6)], successCount: 2, failureCount: 2, critSuccessCount: 2, critFailureCount: 2)',
         ),
       );
     });
-    test('toStringPretty', () {
+    test('toStringPretty', () async {
       // mocked responses should return rolls of 6, 2, 1, 5
       final dice = DiceExpression.create(
         '(4d(3+3)!  + (2+2)d6) #cs #cf #s #f',
-        seededRandom,
+        roller: RNGRoller(seededRandom),
       );
-      final out = dice.roll().toStringPretty();
+      final out = (await dice.roll()).toStringPretty();
       expect(
         out,
-        equals(
+        equalsIgnoringWhitespace(
           '''
-(((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) ===> RollSummary(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {rolled: [6, 2, 1, 5, 3, 5, 1, 4, 6], score: {successes: [6, 6], failures: [1, 1], critSuccesses: [6, 6], critFailures: [1, 1]}})
-  (((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) =count=> RollResult(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {score: {failures: [1, 1]}})
-      ((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) =count=> RollResult(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {score: {successes: [6, 6]}})
-          (((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) =count=> RollResult(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {score: {critFailures: [1, 1]}})
-              ((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) =count=> RollResult(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6], metadata: {score: {critSuccesses: [6, 6]}})
-                  (((4d(3 + 3)) ! ) + ((2 + 2)d6)) =add=> RollResult(total: 33, results: [6, 2, 1, 5, 3, 5, 1, 4, 6])
-                      ((4d(3 + 3)) ! ) =explode=> RollResult(total: 17, results: [6, 2, 1, 5, 3], metadata: {rolled: [3]})
-                          (4d(3 + 3)) =rollDice=> RollResult(total: 14, results: [6, 2, 1, 5], metadata: {rolled: [6, 2, 1, 5]})
-                              (3 + 3) =add=> RollResult(total: 6, results: [3, 3])
-                      ((2 + 2)d6) =rollDice=> RollResult(total: 16, results: [5, 1, 4, 6], metadata: {rolled: [5, 1, 4, 6]})
-                          (2 + 2) =add=> RollResult(total: 4, results: [2, 2])
-        '''
+ (((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) ===> RollSummary(total: 33, results: [1(d6✗❌), 1(d6✗❌), 6(d6💣✓✅), 6(d6✓✅), 3(d6🔥), 2(d6), 5(d6), 5(d6), 4(d6)], successCount: 2, failureCount: 2, critSuccessCount: 2, critFailureCount: 2)
+              (((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) #f ) =count=> RollResult(total: 33, results: [1(d6✗❌), 1(d6✗❌), 6(d6💣✓✅), 6(d6✓✅), 3(d6🔥), 2(d6), 5(d6), 5(d6), 4(d6)])
+                  ((((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) #s ) =count=> RollResult(total: 33, results: [6(d6💣✓✅), 6(d6✓✅), 1(d6❌), 1(d6❌), 3(d6🔥), 2(d6), 5(d6), 5(d6), 4(d6)])
+                      (((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) #cf ) =count=> RollResult(total: 33, results: [1(d6❌), 1(d6❌), 6(d6💣✅), 6(d6✅), 3(d6🔥), 2(d6), 5(d6), 5(d6), 4(d6)])
+                          ((((4d(3 + 3)) ! ) + ((2 + 2)d6)) #cs ) =count=> RollResult(total: 33, results: [6(d6💣✅), 6(d6✅), 3(d6🔥), 2(d6), 1(d6), 5(d6), 5(d6), 1(d6), 4(d6)])
+                              (((4d(3 + 3)) ! ) + ((2 + 2)d6)) =add=> RollResult(total: 33, results: [6(d6💣), 3(d6🔥), 2(d6), 1(d6), 5(d6), 5(d6), 1(d6), 4(d6), 6(d6)])
+                                  ((4d(3 + 3)) ! ) =explode=> RollResult(total: 17, results: [6(d6💣), 3(d6🔥), 2(d6), 1(d6), 5(d6)])
+                                      (4d(3 + 3)) =rollDice=> RollResult(total: 14, results: [6(d6), 2(d6), 1(d6), 5(d6)])
+                                          (3 + 3) =add=> RollResult(total: 6, results: [3(val), 3(val)])
+                                  ((2 + 2)d6) =rollDice=> RollResult(total: 16, results: [5(d6), 1(d6), 4(d6), 6(d6)])
+                                      (2 + 2) =add=> RollResult(total: 4, results: [2(val), 2(val)])
+          '''
               .trim(),
         ),
       );
     });
-    test('toJson', () {
+
+    test('toStringPretty - penetrating', () async {
       // mocked responses should return rolls of 6, 2, 1, 5
-      final dice = DiceExpression.create('4d6', seededRandom);
-      final obj = dice.roll().toJson();
+      final dice = DiceExpression.create(
+        '9d6p',
+        roller: RNGRoller(seededRandom),
+      );
+      final out = (await dice.roll()).toStringPretty();
+      expect(
+        out,
+        equalsIgnoringWhitespace(
+          '''
+(9d6p6) ===> RollSummary(total: 45, results: [10(d6➶), 2(d6), 1(d6), 5(d6), 3(d6), 5(d6), 1(d6), 4(d6), 14(d6➶)], discarded: [6(d6⛔︎⇡), 5(d6⛔︎⇡), -1(val⛔︎⇡), 6(d6⛔︎⇡), 6(d6⛔︎⇡), 4(d6⛔︎⇡), -2(val⛔︎⇡)])
+  (9d6p6) =rollPenetration=> RollResult(total: 45, results: [10(d6➶), 2(d6), 1(d6), 5(d6), 3(d6), 5(d6), 1(d6), 4(d6), 14(d6➶)], discarded: [6(d6⛔︎⇡), 5(d6⛔︎⇡), -1(val⛔︎⇡), 6(d6⛔︎⇡), 6(d6⛔︎⇡), 4(d6⛔︎⇡), -2(val⛔︎⇡)])
+
+          '''
+              .trim(),
+        ),
+      );
+    });
+    test('toJson', () async {
+      // mocked responses should return rolls of 6, 2, 1, 5
+      final dice = DiceExpression.create(
+        '4d6',
+        roller: RNGRoller(seededRandom),
+      );
+      final obj = (await dice.roll()).toJson();
       expect(
         obj,
         equals({
           'expression': '(4d6)',
           'total': 14,
-          'results': [6, 2, 1, 5],
+          'results': [
+            {'result': 6, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+          ],
           'detailedResults': {
             'expression': '(4d6)',
             'opType': 'rollDice',
-            'nsides': 6,
-            'ndice': 4,
-            'results': [6, 2, 1, 5],
-            'metadata': {
-              'rolled': [6, 2, 1, 5],
-            },
-          },
-          'metadata': {
-            'rolled': [6, 2, 1, 5],
+            'results': [
+              {'result': 6, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+            ],
+            'total': 14,
           },
         }),
       );
     });
 
-    test('toJson - metadata', () {
+    test('toJson - with scoring', () async {
       // mocked responses should return rolls of 6, 2, 1, 5
-      final dice = DiceExpression.create('4d6 #cf #cs', seededRandom);
-      final obj = dice.roll().toJson();
+      final dice = DiceExpression.create(
+        '4d6 #cf #cs',
+        roller: RNGRoller(seededRandom),
+      );
+      final obj = (await dice.roll()).toJson();
       expect(
         obj,
-        equals(
-          {
-            'expression': '(((4d6) #cf ) #cs )',
-            'total': 14,
-            'results': [6, 2, 1, 5],
-            'detailedResults': {
-              'expression': '(((4d6) #cf ) #cs )',
-              'opType': 'count',
+        equals({
+          'expression': '(((4d6) #cf ) #cs )',
+          'total': 14,
+          'critSuccessCount': 1,
+          'critFailureCount': 1,
+          'results': [
+            {
+              'result': 6,
               'nsides': 6,
-              'ndice': 4,
-              'results': [6, 2, 1, 5],
-              'metadata': {
-                'score': {
-                  'critSuccesses': [6],
-                },
-              },
-              'left': {
-                'expression': '((4d6) #cf )',
-                'opType': 'count',
+              'dieType': 'polyhedral',
+              'critSuccess': true,
+            },
+            {
+              'result': 1,
+              'nsides': 6,
+              'dieType': 'polyhedral',
+              'critFailure': true,
+            },
+            {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+          ],
+          'detailedResults': {
+            'expression': '(((4d6) #cf ) #cs )',
+            'opType': 'count',
+            'results': [
+              {
+                'result': 6,
                 'nsides': 6,
-                'ndice': 4,
-                'results': [6, 2, 1, 5],
-                'metadata': {
-                  'score': {
-                    'critFailures': [1],
-                  },
-                },
-                'left': {
-                  'expression': '(4d6)',
-                  'opType': 'rollDice',
+                'dieType': 'polyhedral',
+                'critSuccess': true,
+              },
+              {
+                'result': 1,
+                'nsides': 6,
+                'dieType': 'polyhedral',
+                'critFailure': true,
+              },
+              {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+            ],
+            'left': {
+              'expression': '((4d6) #cf )',
+              'opType': 'count',
+              'results': [
+                {
+                  'result': 1,
                   'nsides': 6,
-                  'ndice': 4,
-                  'results': [6, 2, 1, 5],
-                  'metadata': {
-                    'rolled': [6, 2, 1, 5],
-                  },
+                  'dieType': 'polyhedral',
+                  'critFailure': true,
                 },
+                {'result': 6, 'nsides': 6, 'dieType': 'polyhedral'},
+                {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+                {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+              ],
+              'left': {
+                'expression': '(4d6)',
+                'opType': 'rollDice',
+                'results': [
+                  {'result': 6, 'nsides': 6, 'dieType': 'polyhedral'},
+                  {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+                  {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+                  {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+                ],
+                'total': 14,
               },
+              'total': 14,
+              'critFailureCount': 1,
             },
-            'metadata': {
-              'rolled': [6, 2, 1, 5],
-              'score': {
-                'critSuccesses': [6],
-                'critFailures': [1],
-              },
-            },
+            'total': 14,
+            'critSuccessCount': 1,
+            'critFailureCount': 1,
           },
-        ),
+        }),
+      );
+    });
+
+    test('toJson - 9d6p4', () async {
+      final dice = DiceExpression.create(
+        '9d6p4',
+        roller: RNGRoller(seededRandom),
+      );
+      final obj = (await dice.roll()).toJson();
+      expect(
+        obj,
+        equals({
+          'expression': '(9d6p4)',
+          'total': 50,
+          'results': [
+            {
+              'result': 8,
+              'nsides': 6,
+              'dieType': 'polyhedral',
+              'penetrated': true,
+            },
+            {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 3, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+            {'result': 4, 'nsides': 6, 'dieType': 'polyhedral'},
+            {
+              'result': 21,
+              'nsides': 6,
+              'dieType': 'polyhedral',
+              'penetrated': true,
+            },
+          ],
+          'discarded': [
+            {
+              'result': 6,
+              'nsides': 6,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 3,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': -1,
+              'nsides': 1,
+              'potentialValues': [-1],
+              'dieType': 'singleVal',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 6,
+              'nsides': 6,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 4,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 4,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 4,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 4,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 4,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': 1,
+              'nsides': 4,
+              'dieType': 'polyhedral',
+              'discarded': true,
+              'penetrator': true,
+            },
+            {
+              'result': -6,
+              'nsides': 1,
+              'potentialValues': [-6],
+              'dieType': 'singleVal',
+              'discarded': true,
+              'penetrator': true,
+            },
+          ],
+          'detailedResults': {
+            'expression': '(9d6p4)',
+            'opType': 'rollPenetration',
+            'results': [
+              {
+                'result': 8,
+                'nsides': 6,
+                'dieType': 'polyhedral',
+                'penetrated': true,
+              },
+              {'result': 2, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 3, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 5, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 1, 'nsides': 6, 'dieType': 'polyhedral'},
+              {'result': 4, 'nsides': 6, 'dieType': 'polyhedral'},
+              {
+                'result': 21,
+                'nsides': 6,
+                'dieType': 'polyhedral',
+                'penetrated': true,
+              },
+            ],
+            'discarded': [
+              {
+                'result': 6,
+                'nsides': 6,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 3,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': -1,
+                'nsides': 1,
+                'potentialValues': [-1],
+                'dieType': 'singleVal',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 6,
+                'nsides': 6,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 4,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 4,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 4,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 4,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 4,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': 1,
+                'nsides': 4,
+                'dieType': 'polyhedral',
+                'discarded': true,
+                'penetrator': true,
+              },
+              {
+                'result': -6,
+                'nsides': 1,
+                'potentialValues': [-6],
+                'dieType': 'singleVal',
+                'discarded': true,
+                'penetrator': true,
+              },
+            ],
+            'total': 50,
+          },
+        }),
       );
     });
 
     test('rollN test', () async {
-      final dice = DiceExpression.create('2d6', seededRandom);
+      final dice = DiceExpression.create(
+        '2d6',
+        roller: RNGRoller(seededRandom),
+      );
 
-      final results =
-          await dice.rollN(2).map((result) => result.total).toList();
+      final results = await dice
+          .rollN(2)
+          .map((result) => result.total)
+          .toList();
       // mocked responses should return rolls of 6, 2, 1, 5
       expect(results, equals([8, 6]));
     });
 
     test('stats test', () async {
-      final dice = DiceExpression.create('2d6', seededRandom);
+      final dice = DiceExpression.create(
+        '2d6',
+        roller: RNGRoller(seededRandom),
+      );
 
       final stats = await dice.stats(num: 100);
 
@@ -838,6 +1096,66 @@ void main() {
             12: 3,
           },
         }),
+      );
+    });
+  });
+
+  group('externally-rolled dice', () {
+    test('PreRolledDiceRoller feeds provided values into the parser', () async {
+      final dice = DiceExpression.create(
+        '2d6+3',
+        roller: PreRolledDiceRoller([6, 1]),
+      );
+
+      final summary = await dice.roll();
+      expect(summary.total, equals(10));
+
+      final d6Results = summary.results
+          .where((d) => d.nsides == 6)
+          .map((d) => d.result);
+      expect(d6Results, unorderedEquals([6, 1]));
+    });
+
+    test('PreRolledDiceRoller throws when values are exhausted', () async {
+      final dice = DiceExpression.create(
+        '3d6',
+        roller: PreRolledDiceRoller([1, 2]),
+      );
+
+      await expectLater(dice.roll, throwsA(isA<StateError>()));
+    });
+
+    test('CallbackDiceRoller can provide values on demand', () async {
+      final calls = <({int ndice, int nsides, int min, DieType dieType})>[];
+      final dice = DiceExpression.create(
+        '2d6',
+        roller: CallbackDiceRoller(
+          rollCallback:
+              ({
+                required int ndice,
+                required int nsides,
+                required int min,
+                required DieType dieType,
+              }) async {
+                calls.add((
+                  ndice: ndice,
+                  nsides: nsides,
+                  min: min,
+                  dieType: dieType,
+                ));
+                return List<int>.filled(ndice, min);
+              },
+          rollValsCallback:
+              <T>(int ndice, List<T> vals, {required DieType dieType}) async =>
+                  List<T>.filled(ndice, vals.first),
+        ),
+      );
+
+      final summary = await dice.roll();
+      expect(summary.total, equals(2));
+      expect(
+        calls,
+        equals([(ndice: 2, nsides: 6, min: 1, dieType: DieType.polyhedral)]),
       );
     });
   });

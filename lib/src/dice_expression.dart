@@ -1,11 +1,11 @@
-import 'dart:math';
-
 import 'package:logging/logging.dart';
 import 'package:petitparser/petitparser.dart';
 
 import 'dice_roller.dart';
+import 'enums.dart';
 import 'parser.dart';
-import 'results.dart';
+import 'roll_result.dart';
+import 'roll_summary.dart';
 import 'stats.dart';
 
 /// An abstract expression that can be evaluated.
@@ -14,9 +14,7 @@ abstract class DiceExpression {
   static List<Function(RollResult)> listeners = [defaultListener];
   static List<Function(RollSummary)> summaryListeners = [];
 
-  static void registerListener(
-    Function(RollResult rollResult) callback,
-  ) {
+  static void registerListener(Function(RollResult rollResult) callback) {
     listeners.add(callback);
   }
 
@@ -58,11 +56,8 @@ abstract class DiceExpression {
   /// Parse the given input into a DiceExpression
   ///
   /// Throws [FormatException] if invalid
-  static DiceExpression create(
-    String input, [
-    Random? random,
-  ]) {
-    final builder = parserBuilder(DiceRoller(random));
+  static DiceExpression create(String input, {DiceRoller? roller}) {
+    final builder = parserBuilder(DiceResultRoller(roller));
     final result = builder.parse(input);
     if (result is Failure) {
       throw FormatException(
@@ -75,16 +70,16 @@ abstract class DiceExpression {
   }
 
   /// each DiceExpression operation is callable (when we call the parsed string, this is the method that'll be used)
-  RollResult call();
+  Future<RollResult> call();
 
   /// Rolls the dice expression
   ///
   /// Throws [FormatException]
-  RollSummary roll({
+  Future<RollSummary> roll({
     Function(RollResult rollResult) onRoll = noopListener,
     Function(RollSummary rollSummary) onSummary = noopSummaryListener,
-  }) {
-    final rollResult = this();
+  }) async {
+    final rollResult = await this();
 
     callListeners(rollResult, onRoll: onRoll);
 
@@ -101,16 +96,14 @@ abstract class DiceExpression {
   /// Throws [FormatException]
   Stream<RollSummary> rollN(int num) async* {
     for (var i = 0; i < num; i++) {
-      yield roll();
+      yield await roll();
     }
   }
 
   /// Performs [num] rolls and outputs stats (stddev, mean, min/max, and a histogram)
   ///
   /// Throws [FormatException]
-  Future<Map<String, dynamic>> stats({
-    int num = 1000,
-  }) async {
+  Future<Map<String, dynamic>> stats({int num = 1000}) async {
     final stats = StatsCollector();
 
     await for (final r in rollN(num)) {
