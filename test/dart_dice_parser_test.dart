@@ -1122,7 +1122,10 @@ void main() {
         roller: PreRolledDiceRoller([1, 2]),
       );
 
-      await expectLater(dice.roll, throwsA(isA<StateError>()));
+      await expectLater(
+        dice.roll,
+        throwsA(isA<PreRolledDiceRollerExhaustedException>()),
+      );
     });
 
     test('CallbackDiceRoller can provide values on demand', () async {

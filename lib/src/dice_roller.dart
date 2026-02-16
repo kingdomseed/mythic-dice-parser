@@ -52,7 +52,17 @@ abstract class DiceRoller {
 /// [RollSummary] and detailed result tree.
 ///
 /// Values are consumed in the order the parser requests rolls. If the parser
-/// requests more values than are available, a [StateError] is thrown.
+/// requests more values than are available, a
+/// [PreRolledDiceRollerExhaustedException] is thrown.
+final class PreRolledDiceRollerExhaustedException implements Exception {
+  const PreRolledDiceRollerExhaustedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 final class PreRolledDiceRoller extends DiceRoller {
   PreRolledDiceRoller(Iterable<int> values) : _values = Queue<int>.of(values);
 
@@ -60,7 +70,7 @@ final class PreRolledDiceRoller extends DiceRoller {
 
   int _nextValue() {
     if (_values.isEmpty) {
-      throw StateError(
+      throw const PreRolledDiceRollerExhaustedException(
         'PreRolledDiceRoller ran out of values. '
         'The expression requested more dice rolls than were provided.',
       );

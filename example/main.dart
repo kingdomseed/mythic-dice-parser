@@ -135,8 +135,9 @@ Future<int> run({
   required String output,
 }) async {
   if (stats) {
-    final stats =
-        await expression.stats(num: numRolls == 1 ? defaultStatsNum : numRolls);
+    final stats = await expression.stats(
+      num: numRolls == 1 ? defaultStatsNum : numRolls,
+    );
     stdout.writeln(stats);
   } else {
     await for (final r in expression.rollN(numRolls)) {
