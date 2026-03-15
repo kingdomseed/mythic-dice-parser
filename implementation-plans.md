@@ -186,6 +186,8 @@ class LabelOp extends Unary {
 
 /// Wraps a sub-expression with tags (key-value metadata).
 /// In the expression `2d6 @color=red`, the tag is {color: red}.
+/// Tags are stored on the RollResult node, NOT on individual RolledDie objects.
+/// GroupResult picks them up when building groups from the result tree.
 class TagOp extends Unary {
   TagOp(DiceExpression child, this.tags) : super('tag', child);
 
@@ -200,26 +202,28 @@ class TagOp extends Unary {
   @override
   Future<RollResult> eval() async {
     final result = await left();
-    // Stamp tags onto all results
+    // Store tags on the RollResult node (not individual dice).
+    // GroupResult will pick these up from the result tree.
     return RollResult.fromRollResult(
       result,
       expression: toString(),
       opType: result.opType,
-      results: result.results.map(
-        (d) => RolledDie.copyWith(d, tags: tags),
-      ),
-      discarded: result.discarded,
+      tags: tags, // NEW: optional tags field on RollResult
     );
   }
 }
+
+// NOTE: RollResult needs a new optional `tags` field:
+//   final Map<String, String>? tags;
+// Added to constructor, fromRollResult factory, and props.
+// This is a lightweight addition — RollResult already carries metadata.
 ```
 
-**Reworked `CommaOp`:**
+**Reworked `CommaOp` — Conditional behavior:**
 
-The current `CommaOp` (lines 48-96) collapses sub-expressions into `singleVal` totals. This must change to preserve individual `RolledDie` objects. The new behavior:
+The current `CommaOp` (lines 48-96) collapses sub-expressions into `singleVal` totals. For groups/labels to work, we need to preserve individual `RolledDie` objects. However, unconditionally changing this breaks existing semantics for expressions like `(2d6,3d8)kh`.
 
-- If the child is already a comma result (`opType == OpType.comma`), pass through its results (existing behavior, correct).
-- Otherwise, **pass through the child's results directly** instead of collapsing to `singleVal`.
+**Decision: Conditional behavior based on whether labels are present.** If any child result contains dice with `groupLabel != null`, preserve individual die identity. If no labels are present, preserve the existing totalization behavior. This is zero-breakage for unlabeled expressions.
 
 ```dart
 class CommaOp extends Binary {
@@ -230,18 +234,38 @@ class CommaOp extends Binary {
     final lhs = await left();
     final rhs = await right();
 
+    // Check if any child has labeled dice (from LabelOp)
+    final hasLabels = lhs.results.any((d) => d.groupLabel != null) ||
+        rhs.results.any((d) => d.groupLabel != null);
+
+    if (hasLabels) {
+      // Labeled mode: preserve individual die identity within groups.
+      return _evalLabeled(lhs, rhs);
+    } else {
+      // Unlabeled mode: existing totalization behavior (backward compatible).
+      return _evalTotalized(lhs, rhs);
+    }
+  }
+
+  /// New behavior for labeled groups: pass through individual dice.
+  Future<RollResult> _evalLabeled(RollResult lhs, RollResult rhs) async {
     final results = <RolledDie>[];
     final discarded = <RolledDie>[];
 
     discarded.addAll(lhs.discarded);
     discarded.addAll(rhs.discarded);
 
-    // Preserve individual die identity within groups.
-    // Previously, non-comma children were collapsed into singleVal totals.
-    // Now we pass through results directly so group labels and die identity
-    // survive.
-    results.addAll(lhs.results);
-    results.addAll(rhs.results);
+    // Flatten comma children, preserve individual dice for labeled groups
+    if (lhs.opType == OpType.comma) {
+      results.addAll(lhs.results);
+    } else {
+      results.addAll(lhs.results);
+    }
+    if (rhs.opType == OpType.comma) {
+      results.addAll(rhs.results);
+    } else {
+      results.addAll(rhs.results);
+    }
 
     return RollResult(
       expression: toString(),
@@ -252,15 +276,46 @@ class CommaOp extends Binary {
       right: rhs,
     );
   }
+
+  /// Existing behavior: collapse each sub-expression to a singleVal total.
+  Future<RollResult> _evalTotalized(RollResult lhs, RollResult rhs) async {
+    // ... (current implementation, unchanged)
+  }
 }
 ```
 
-**BREAKING CHANGE: CommaOp discard list behavior.** The current `CommaOp` moves original results of non-comma children into the `discarded` list (via `discarded.addAll(lhs.results.map(RolledDie.discard))`) as a side-effect of totalization. The new CommaOp intentionally removes this — individual dice are preserved in `results`, not discarded. Tests relying on the discard list for comma expressions will break for this reason in addition to the total-vs-individual change.
+**Impact analysis for downstream operators with labeled commas:**
+- `"A:" 2d6, "B:" 1d8` with `kh` → keeps highest individual die across all groups. This is the expected behavior when dice have group identity.
+- `1d4,1d6,1d8,1d10` (no labels) with `kh` → unchanged, keeps highest total sub-expression.
+- Existing test `'scored comma', '(1d4,1d4p,1d4!,1d4!!)#s>=4'` → unchanged (no labels).
 
-**CRITICAL RISK: Behavioral change to CommaOp.** The current `CommaOp` creates `singleVal` totals per sub-expression. Downstream operations (like `kh` on a comma result, or sort on a comma result) rely on the comma producing individual result items. Changing from `singleVal` totals to raw results changes the semantics:
+**Tests to add for the conditional behavior:**
+```dart
+test('unlabeled comma preserves totalization', () async {
+  // Same behavior as current: each sub-expr collapsed to total
+  final expr = DiceExpression.create('(2d6,3d8)kh', roller: RNGRoller(Random(1234)));
+  final result = await expr.roll();
+  // Verify results are singleVal totals, not individual dice
+  expect(result.results.every((d) => d.dieType == DieType.singleVal), isTrue);
+});
 
-- `(1d4,1d6,1d8,1d10) kh` — currently keeps the highest *total* among the 4 sub-expressions. With the change, it would keep the highest *individual die* across all sub-expressions. These are the same when each sub-expression is a single die, but differ for multi-die sub-expressions like `(2d6,3d8) kh`.
-- The existing test `'scored comma', '(1d4,1d4p,1d4!,1d4!!)#s>=4'` expects `expectedResults: [4, 4, 3, 3]` — these are the singleVal totals. With the change, results would be the individual dice.
+test('labeled comma preserves individual dice', () async {
+  final expr = DiceExpression.create('"A:" 2d6, "B:" 1d8', roller: RNGRoller(Random(1234)));
+  final result = await expr.roll();
+  // Individual dice preserved, not collapsed
+  expect(result.results.length, 3); // 2 + 1
+  expect(result.results.any((d) => d.dieType == DieType.polyhedral), isTrue);
+});
+
+test('mixed comma with heterogeneous dice and kh', () async {
+  // Before: (2d6,3d8)kh keeps highest sub-expression total
+  // After: same (no labels, backward compatible)
+  final expr = DiceExpression.create('(2d6,3d8)kh', roller: RNGRoller(Random(1234)));
+  final initial = await expr.roll();
+  // Results should still be totals
+  expect(initial.results.length, 1);
+});
+```
 
 **Mitigation strategy:** Introduce the behavioral change, then update tests to match. The new behavior is strictly more useful (preserves die identity) and is required for labels/groups to work. Document the breaking change. The old "collapse to total" behavior can be recovered by wrapping sub-expressions in `{}` (the aggregate operator), e.g., `{2d6},{3d8}` produces totals.
 
@@ -272,18 +327,16 @@ class CommaOp extends Binary {
 /// The group label this die belongs to (from "Label:" syntax).
 /// null if no label was applied.
 final String? groupLabel;
-
-/// Client-defined metadata tags (from @key=value syntax).
-/// null if no tags were applied.
-final Map<String, String>? tags;
 ```
+
+**NOTE (YAGNI decision):** Tags are NOT added to `RolledDie`. Tags are a group-level concept and belong only on `GroupResult`. Stamping tags on individual dice would require propagating them through every `copyWith` call in every AST operation (explode, compound, reroll, clamp, etc.) — excessive churn for a metadata passthrough. Instead, `TagOp` stores tags on the `RollResult` node (via a new optional field), and `GroupResult` picks them up when building groups from the result tree.
 
 **Changes required:**
 
-1. **Constructor:** Add `this.groupLabel` and `this.tags` as optional named parameters.
-2. **`copyWith` factory:** Add `String? groupLabel` and `Map<String, String>? tags` parameters. Pass through: `groupLabel: groupLabel ?? other.groupLabel`, `tags: tags ?? other.tags`.
-3. **`props` getter:** Add `groupLabel` and `tags` to the Equatable props list.
-4. **`toJson()`:** Add `'groupLabel': groupLabel` and `'tags': tags` entries (they'll be removed by the `removeWhere` if null/empty).
+1. **Constructor:** Add `this.groupLabel` as optional named parameter.
+2. **`copyWith` factory:** Add `String? groupLabel` parameter. Pass through: `groupLabel: groupLabel ?? other.groupLabel`.
+3. **`props` getter:** Add `groupLabel` to the Equatable props list.
+4. **`toJson()`:** Add `'groupLabel': groupLabel` entry (removed by `removeWhere` if null).
 5. **`toString()`:** Optionally include group label in output for debugging.
 
 **Exact constructor signature change:**
@@ -639,29 +692,39 @@ if (locked) {
 
 **`compareTo()` change:** Add `.if0(locked.compareTo(other.locked))`.
 
-#### 4.2.2 `lib/src/roll_summary.dart` — Add `reroll()` method
+#### 4.2.2 `lib/src/push.dart` — New file for push/reroll functionality
 
-**New method on `RollSummary`:**
+**Architecture decision:** `reroll()` is a standalone top-level function in a new file, NOT a method on `RollSummary`. This preserves `RollSummary` as a pure data class (matching Steve's pattern where it is purely declarative). The push function lives in a separate file that depends on both the result layer and the roller layer, avoiding a dependency cycle.
+
+**New file: `lib/src/push.dart`**
 
 ```dart
-/// Re-roll unlocked dice. Returns a new [RollSummary].
+import 'dice_roller.dart';
+import 'enums.dart';
+import 'roll_result.dart';
+import 'roll_summary.dart';
+import 'rolled_die.dart';
+
+/// Re-roll unlocked dice from a previous [RollSummary].
 ///
 /// [lockWhere] determines which dice to lock (true = lock, false = re-roll).
 /// Locked dice appear in the new result unchanged, with `locked: true`.
 /// Unlocked dice are re-rolled using [roller].
+/// `singleVal` and `totaled` dice are auto-locked (constants like +3).
 ///
 /// Can be called multiple times on successive results (multi-push).
 ///
-/// Does NOT mutate the original.
-Future<RollSummary> reroll({
+/// Returns a new [RollSummary] — does NOT mutate the original.
+Future<RollSummary> reroll(
+  RollSummary summary, {
   required bool Function(RolledDie) lockWhere,
   required DiceRoller roller,
 }) async {
   final diceResultRoller = DiceResultRoller(roller);
   final newResults = <RolledDie>[];
-  final newDiscarded = <RolledDie>[...discarded];
+  final newDiscarded = <RolledDie>[...summary.discarded];
 
-  for (final die in results) {
+  for (final die in summary.results) {
     // Auto-lock singleVal/totaled dice -- these are constants (e.g., +3)
     // that should never be re-rolled. Also respect already-locked dice
     // and the caller's lock predicate.
@@ -670,19 +733,16 @@ Future<RollSummary> reroll({
         die.totaled ||
         lockWhere(die);
     if (shouldLock) {
-      // Lock this die and preserve it
       newResults.add(RolledDie.copyWith(die, locked: true));
     } else {
-      // Re-roll this die
       newDiscarded.add(RolledDie.copyWith(die, discarded: true));
       final rerolled = await diceResultRoller.reroll(die);
       newResults.addAll(rerolled.results);
     }
   }
 
-  // Build a synthetic RollResult for the new summary
   final newRollResult = RollResult(
-    expression: '$expression (push)',
+    expression: '${summary.expression} (push)',
     opType: OpType.reroll,
     results: newResults,
     discarded: newDiscarded,
@@ -692,11 +752,13 @@ Future<RollSummary> reroll({
 }
 ```
 
-**Imports needed:** Add `import 'dice_roller.dart';` to roll_summary.dart.
+**Export:** Add `export 'src/push.dart';` to `lib/dart_dice_parser.dart`.
 
-**DESIGN NOTE:** The `reroll()` method uses `DiceResultRoller.reroll(RolledDie)` which already knows how to re-roll based on `DieType` (polyhedral, fudge, d66, nvals). This means each die is re-rolled with the correct die type and number of sides, preserving its identity.
+**DESIGN NOTE:** `DiceResultRoller.reroll(RolledDie)` already knows how to re-roll based on `DieType` (polyhedral, fudge, d66, nvals). Each die is re-rolled with the correct die type and number of sides, preserving its identity.
 
-**Group preservation:** If the original result had groups (via `groupLabel` on individual dice), the locked and re-rolled dice retain their `groupLabel` through `copyWith`. The new `RollSummary` constructor will rebuild the `groups` map from the new result set. This means group structure is automatically preserved across pushes.
+**Group preservation:** Locked and re-rolled dice retain their `groupLabel` through `copyWith`. The new `RollSummary` constructor will rebuild the `groups` map from the new result set. Group structure is automatically preserved across pushes.
+
+**Known limitation — scoring not re-applied:** Re-rolled dice come from `DiceResultRoller.reroll()` which produces plain dice without scoring flags. For YZE, the client must re-apply scoring logic post-push. This is documented as a Phase 4 limitation with a concrete follow-up: consider an optional scoring predicate parameter on `reroll()` in a future iteration.
 
 #### 4.2.3 `lib/src/enums.dart` — No changes needed
 
@@ -712,7 +774,7 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final expr = DiceExpression.create('5d6', roller: RNGRoller(Random(1234)));
      final initial = await expr.roll();
 
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => die.result == 6 || die.result == 1,
        roller: RNGRoller(Random(9999)),
      );
@@ -733,12 +795,12 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final expr = DiceExpression.create('5d6', roller: RNGRoller(Random(1234)));
      final initial = await expr.roll();
 
-     final push1 = await initial.reroll(
+     final push1 = await reroll(initial,
        lockWhere: (die) => die.result == 6,
        roller: RNGRoller(Random(42)),
      );
 
-     final push2 = await push1.reroll(
+     final push2 = await reroll(push1,
        lockWhere: (die) => die.result == 1,
        roller: RNGRoller(Random(99)),
      );
@@ -758,7 +820,7 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      );
      final initial = await expr.roll();
 
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => die.result >= 5,
        roller: RNGRoller(Random(42)),
      );
@@ -775,7 +837,7 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final initial = await expr.roll();
 
      // All dice are not 6, so none locked by this predicate
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => die.result == 6,
        roller: PreRolledDiceRoller([4, 5, 6]),
      );
@@ -790,7 +852,7 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final expr = DiceExpression.create('3d6', roller: RNGRoller(Random(1234)));
      final initial = await expr.roll();
 
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => true, // lock everything
        roller: RNGRoller(Random(42)),
      );
@@ -809,7 +871,7 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final expr = DiceExpression.create('3d6', roller: RNGRoller(Random(1234)));
      final initial = await expr.roll();
 
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => false, // lock nothing
        roller: RNGRoller(Random(42)),
      );
@@ -826,12 +888,46 @@ The existing `OpType.reroll` value is already present and can be reused for the 
      final expr = DiceExpression.create('2d6+3', roller: RNGRoller(Random(1234)));
      final initial = await expr.roll();
 
-     final pushed = await initial.reroll(
+     final pushed = await reroll(initial,
        lockWhere: (die) => die.dieType == DieType.singleVal,
        roller: RNGRoller(Random(42)),
      );
 
      expect(pushed.results, isNotEmpty);
+   });
+   ```
+
+8. **Push with exploded dice (result count may change):**
+   ```dart
+   test('push with exploded dice may change result count', () async {
+     // Roll with exploding dice
+     final expr = DiceExpression.create('3d6!', roller: RNGRoller(Random(1234)));
+     final initial = await expr.roll();
+     final initialCount = initial.results.length;
+
+     final pushed = await reroll(initial,
+       lockWhere: (die) => false, // re-roll everything
+       roller: RNGRoller(Random(42)),
+     );
+
+     // Result count may differ -- explosion is not re-applied
+     expect(pushed.results.length, isPositive);
+     // But every die should be a valid d6
+     expect(pushed.results.every((d) => d.nsides == 6), isTrue);
+   });
+   ```
+
+9. **Heterogeneous labeled comma groups with scoring:**
+   ```dart
+   test('labeled groups with per-group scoring', () async {
+     final expr = DiceExpression.create(
+       '"A:" 2d6 #s>=5, "B:" 2d8 #s>=5',
+       roller: RNGRoller(Random(1234)),
+     );
+     final result = await expr.roll();
+     expect(result.groups, isNotNull);
+     expect(result.groups!['A'], isNotNull);
+     expect(result.groups!['B'], isNotNull);
    });
    ```
 
@@ -1077,8 +1173,9 @@ Add `import 'dice_expression.dart';` if not already present (it is already impor
    - D9d: Write tests
 5. **Phase 4:** Push / Re-roll
    - 4a: Add `locked` field to `RolledDie`
-   - 4b: Add `reroll()` method to `RollSummary`
-   - 4c: Write tests
+   - 4b: Create `lib/src/push.dart` with standalone `reroll()` function
+   - 4c: Export from `lib/dart_dice_parser.dart`
+   - 4d: Write tests
 
 ---
 
@@ -1093,7 +1190,9 @@ Add `import 'dice_expression.dart';` if not already present (it is already impor
 | `lib/src/ast_core.dart` | 3 | MODIFY | Rework CommaOp; add LabelOp, TagOp |
 | `lib/src/parser.dart` | 3, D9 | MODIFY | Add label/tag/named-type grammar rules |
 | `lib/src/group_result.dart` | 3 | CREATE | GroupResult class |
-| `lib/src/roll_summary.dart` | 3, 4 | MODIFY | Add groups field; add reroll() method |
+| `lib/src/roll_summary.dart` | 3 | MODIFY | Add groups field |
+| `lib/src/push.dart` | 4 | CREATE | Standalone reroll() function |
+| `lib/src/roll_result.dart` | 3 | MODIFY | Add optional tags field |
 | `lib/src/ast_dice.dart` | D9 | MODIFY | Add NamedDice class |
 | `lib/dart_dice_parser.dart` | 3 | MODIFY | Export group_result.dart |
 | `test/dart_dice_parser_test.dart` | 3, 4, D9 | MODIFY | Fix broken comma tests; add new test groups |
