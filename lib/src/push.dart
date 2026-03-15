@@ -42,7 +42,13 @@ Future<RollSummary> reroll(
     } else {
       newDiscarded.add(RolledDie.copyWith(die, discarded: true));
       final rerolled = await diceResultRoller.reroll(die);
-      newResults.addAll(rerolled.results);
+      newResults.addAll(
+        rerolled.results.map(
+          (r) => die.groupLabel != null
+              ? RolledDie.copyWith(r, groupLabel: die.groupLabel)
+              : r,
+        ),
+      );
     }
   }
 

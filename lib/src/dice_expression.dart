@@ -68,7 +68,16 @@ abstract class DiceExpression {
     if (faces.isEmpty) {
       throw ArgumentError('Die type faces must be non-empty');
     }
-    _dieTypeRegistry[name.toLowerCase()] = List.unmodifiable(faces);
+    if (name.isEmpty || !RegExp(r'^[a-zA-Z]+$').hasMatch(name)) {
+      throw ArgumentError(
+        'Die type name must be non-empty and contain only letters',
+      );
+    }
+    final lower = name.toLowerCase();
+    if (lower == 'f') {
+      throw ArgumentError("Die type name 'f' is reserved for fudge dice");
+    }
+    _dieTypeRegistry[lower] = List.unmodifiable(faces);
   }
 
   /// Unregister a named die type.

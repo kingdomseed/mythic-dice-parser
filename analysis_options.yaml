@@ -45,7 +45,8 @@ linter:
     - prefer_final_in_for_each
     - prefer_final_locals
     - prefer_if_elements_to_conditional_expressions
-    - prefer_relative_imports
+    # prefer_relative_imports removed: conflicts with always_use_package_imports from package:lint
+    # - prefer_relative_imports
     - prefer_single_quotes
     - unnecessary_await_in_return
     - unnecessary_breaks

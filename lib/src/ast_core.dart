@@ -206,7 +206,9 @@ class LabelOp extends Unary {
       results: result.results.map(
         (d) => RolledDie.copyWith(d, groupLabel: label),
       ),
-      discarded: result.discarded,
+      discarded: result.discarded.map(
+        (d) => RolledDie.copyWith(d, groupLabel: label),
+      ),
     );
   }
 }
@@ -235,7 +237,7 @@ class TagOp extends Unary {
       result,
       expression: toString(),
       opType: result.opType,
-      tags: tags,
+      tags: {...?result.tags, ...tags},
     );
   }
 }

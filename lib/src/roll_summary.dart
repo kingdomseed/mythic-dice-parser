@@ -125,7 +125,9 @@ class RollSummary extends Equatable {
 
   static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
     // Only build groups when the expression used labels.
-    final hasLabels = detailedResults.results.any((d) => d.groupLabel != null);
+    final hasLabels =
+        detailedResults.results.any((d) => d.groupLabel != null) ||
+        detailedResults.discarded.any((d) => d.groupLabel != null);
     if (!hasLabels) return null;
 
     // Group results by their groupLabel
@@ -145,11 +147,12 @@ class RollSummary extends Equatable {
     final groupTags = <String, Map<String, String>>{};
     _harvestTags(detailedResults, groupTags);
 
+    final allLabels = {...grouped.keys, ...groupedDiscarded.keys};
     return {
-      for (final label in grouped.keys)
+      for (final label in allLabels)
         label: GroupResult(
           label: label,
-          results: grouped[label]!,
+          results: grouped[label] ?? [],
           discarded: groupedDiscarded[label] ?? [],
           tags: groupTags[label],
         ),
@@ -164,13 +167,19 @@ class RollSummary extends Equatable {
     Map<String, Map<String, String>> groupTags,
   ) {
     if (node.tags != null && node.tags!.isNotEmpty) {
-      // Find the group label from this node's results
-      final label =
-          node.results
-              .map((d) => d.groupLabel)
-              .firstWhere((l) => l != null, orElse: () => null) ??
-          '';
-      groupTags.putIfAbsent(label, () => {}).addAll(node.tags!);
+      // Find all distinct group labels from this node's results
+      final labels = node.results
+          .map((d) => d.groupLabel)
+          .whereType<String>()
+          .toSet();
+      if (labels.isEmpty) {
+        // No labels found; assign to the anonymous group.
+        groupTags.putIfAbsent('', () => {}).addAll(node.tags!);
+      } else {
+        for (final label in labels) {
+          groupTags.putIfAbsent(label, () => {}).addAll(node.tags!);
+        }
+      }
     }
     if (node.left != null) _harvestTags(node.left!, groupTags);
     if (node.right != null) _harvestTags(node.right!, groupTags);
