@@ -4,6 +4,12 @@
 **Status:** Concrete, file-level plans for all remaining work
 **Governing docs:** `draft spec.md` (spec), `spec-validation-report.md` (validated state)
 
+### Decisions Recorded
+
+- **Phases 1 & 2:** SKIP — already absorbed from upstream PRs. No optional Phase 2 cleanups (Random? convenience param, @Deprecated on static listeners, simultaneousRolls) are included in this plan. They can be revisited if needed.
+- **`RollSummary` naming:** Keep as `RollSummary`. The spec uses `RollOutcome` but this is cosmetic. Renaming adds churn with no functional benefit. The `reroll()` method goes on `RollSummary` to match the existing codebase convention.
+- **DiceRoller interface:** Keep `Stream<int>`. No change from current fork.
+
 ---
 
 ## Phase 0: Immediate Fixes (Do Now)
@@ -139,6 +145,8 @@ builder.group()
 
 **IMPORTANT DESIGN NOTE:** The label prefix and tag postfix must be at the same precedence level as the comma operator or lower, so that `"Attack:" 2d6! @color=red, "Damage:" 1d8` parses as two comma-separated groups where the first group has a label and a tag.
 
+**PRECEDENCE CHANGE ANALYSIS:** The current code has count, sort, and comma all in the SAME `builder.group()` (parser.dart lines 122-137). The proposed change splits them into two groups: count/sort in one, then labels/tags/comma in a new lower-precedence group. This makes comma lower precedence than count/sort. **Impact on existing expressions:** `(1d4,1d4p,1d4!,1d4!!)#s>=4` — currently comma and count are at the same level. With the split, the scoring `#s>=4` would bind tighter than comma, so each sub-expression gets scored individually before being comma-joined. This is actually the **desired behavior** for groups (each group should have its own scoring). Verify with tests that existing comma+scoring expressions produce the same results or document the intentional behavioral change.
+
 **Parsing ambiguity analysis:**
 - `"` does not conflict with any existing token (the grammar has no string literals).
 - `@` does not conflict with any existing token.
@@ -246,6 +254,8 @@ class CommaOp extends Binary {
   }
 }
 ```
+
+**BREAKING CHANGE: CommaOp discard list behavior.** The current `CommaOp` moves original results of non-comma children into the `discarded` list (via `discarded.addAll(lhs.results.map(RolledDie.discard))`) as a side-effect of totalization. The new CommaOp intentionally removes this — individual dice are preserved in `results`, not discarded. Tests relying on the discard list for comma expressions will break for this reason in addition to the total-vs-individual change.
 
 **CRITICAL RISK: Behavioral change to CommaOp.** The current `CommaOp` creates `singleVal` totals per sub-expression. Downstream operations (like `kh` on a comma result, or sort on a comma result) rely on the comma producing individual result items. Changing from `singleVal` totals to raw results changes the semantics:
 
@@ -652,7 +662,14 @@ Future<RollSummary> reroll({
   final newDiscarded = <RolledDie>[...discarded];
 
   for (final die in results) {
-    if (die.locked || lockWhere(die)) {
+    // Auto-lock singleVal/totaled dice -- these are constants (e.g., +3)
+    // that should never be re-rolled. Also respect already-locked dice
+    // and the caller's lock predicate.
+    final shouldLock = die.locked ||
+        die.dieType == DieType.singleVal ||
+        die.totaled ||
+        lockWhere(die);
+    if (shouldLock) {
       // Lock this die and preserve it
       newResults.add(RolledDie.copyWith(die, locked: true));
     } else {
@@ -920,6 +937,9 @@ However, there IS a conflict with `dF` and `d%` -- these are already handled as 
 
 ```dart
 /// Roll dice with faces from a named die type registry.
+/// NOTE: `super.roller` is a `DiceResultRoller` (not `DiceRoller`), matching
+/// the `UnaryDice` constructor signature. The parser passes its `roller`
+/// variable which is already a `DiceResultRoller`.
 class NamedDice extends UnaryDice {
   NamedDice(super.op, super.left, super.roller, this.dieName, this.faces);
 
@@ -1042,8 +1062,8 @@ Add `import 'dice_expression.dart';` if not already present (it is already impor
 1. **Phase 0A:** Fix `clearSummaryListeners()` bug (5 minutes)
 2. **Phase 0B:** Delete dead code files (5 minutes)
 3. **Phase 3:** Groups, Labels, Tags (largest piece of work)
-   - 3a: Add `groupLabel` and `tags` fields to `RolledDie`
-   - 3b: Add `LabelOp` and `TagOp` AST nodes
+   - 3a: Add `groupLabel` and `tags` fields to `RolledDie` **(MUST be first — 3b depends on these fields existing)**
+   - 3b: Add `LabelOp` and `TagOp` AST nodes (calls `RolledDie.copyWith` with `groupLabel`/`tags`)
    - 3c: Rework `CommaOp` to preserve die identity
    - 3d: Add grammar rules for labels and tags
    - 3e: Create `GroupResult` class
