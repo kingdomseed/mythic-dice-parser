@@ -64,7 +64,7 @@ lib/
     stats.dart                # StatsCollector (Welford's algorithm)
     utils.dart                # Logging mixin
 test/
-  dart_dice_parser_test.dart  # Single test file (~1165 lines)
+  dart_dice_parser_test.dart  # Single test file (~1600 lines)
 example/
   simple.dart                 # Basic usage
   main.dart                   # CLI with arg parsing
@@ -75,7 +75,8 @@ example/
 - **Parser:** Built with `petitparser` (parser combinators). Entry point is `parserBuilder()` in `parser.dart`.
 - **AST:** Parsed expressions become a binary tree of `DiceOp` nodes. Each node implements `call()` → `Future<RollResult>`.
 - **Results:** `RollResult` is a tree node with `left`/`right` pointers, enabling introspection. `RollSummary` is the top-level output.
-- **Groups:** Comma-separated labeled expressions (`"Attack:" 2d6, "Damage:" 1d8`) produce `GroupResult` objects accessible via `RollSummary.groups`.
+- **Groups:** Comma-separated labeled expressions (`"Attack": 2d6, "Damage": 1d8`) produce `GroupResult` objects accessible via `RollSummary.groups`.
+- **Pluggable Roller:** `DiceRoller` is the abstract interface. Ships with `RNGRoller` (RNG-based), `PreRolledDiceRoller` (feed in known values for physical/external dice), and `CallbackDiceRoller` (async on-demand prompts for 3D dice, Bluetooth, etc.). Roller returns raw ints; the AST wraps them into `RolledDie` objects.
 - **Push/Reroll:** Standalone `reroll()` function in `push.dart` re-rolls unlocked dice from a `RollSummary`. Supports multi-push and auto-locks constants.
 - **Named Die Types:** Static registry on `DiceExpression` maps names to face lists (e.g., `4dfate` after `registerDieType('fate', [-1,-1,0,0,1,1])`).
 - **Tags:** `@key=value` syntax on expressions, stored on `RollResult` nodes and harvested into `GroupResult.tags`.
@@ -86,7 +87,7 @@ example/
 
 | Package | Purpose |
 |---------|---------|
-| `petitparser` | Parser combinator for dice notation |
+| `petitparser` | Parser combinator for dice notation (^7.0.2) |
 | `fast_immutable_collections` | Immutable collections (`IList`) |
 | `equatable` | Value equality |
 | `collection` | Collection utilities |
@@ -111,11 +112,19 @@ example/
 ## Testing
 
 - Single test file: `test/dart_dice_parser_test.dart`
-- Uses seeded `Random(1234)` for deterministic results.
-- `MockRandom` (via `mocktail`) for controlled random values.
-- Helper functions: `seededRandTest()` and `staticRandTest()` for grouped assertions.
+- `PreRolledDiceRoller` is the primary tool for deterministic tests -- feed exact values.
+- `MockRandom` (via `mocktail`) for controlled random values in RNG-based tests.
 - Tests run on both VM and Chrome platforms.
 - Coverage tracked via Codecov.
+
+## Gotchas
+
+- **Label syntax:** The colon goes AFTER the closing quote: `"Attack": 2d6`, NOT `"Attack:" 2d6`. The parser matches `"` + chars + `":` as a unit.
+- **CommaOp dual-mode:** `CommaOp` chooses labeled vs totalized behavior at runtime by inspecting `groupLabel` on dice. This is known architectural debt -- a cleaner design would split into `GroupCommaOp`/`TotalCommaOp` at parse time. The runtime check must inspect both `.results` and `.discarded`.
+- **Tag parser structure:** The `.postfix()` tag parser matches one `@key=value` per application. Multi-tag (`@a=1 @b=2`) works because PetitParser's `ExpressionBuilder.star()` re-applies the postfix, creating nested `TagOp` nodes. `TagOp` merges via `{...?result.tags, ...tags}`.
+- **`PreRolledDiceRoller` validates ranges:** Passing a value outside the die's range (e.g., `7` for a d6) throws `RangeError`. Values are consumed in parser-request order -- exploding/compounding dice consume extra values unpredictably.
+- **`from` excluded from `toJson()`:** `RolledDie.from` (provenance chain) is deliberately omitted from `toJson()` to avoid deeply recursive output. Each `copyWith` stores the original die, creating chains that can be very deep for exploding/penetrating dice.
+- **GroupResult stats are lazy getters:** `total`, `successCount`, etc. are computed getters (not stored fields), matching the pattern used by `RollResult`. Don't include them in `props`.
 
 ## Supported Dice Notation
 
@@ -127,6 +136,6 @@ Clamping: `4d20C<5`, `4d20C>15`
 Counting: `4d6#`, `4d6#>3`, `2d20#cf#cs`
 Arithmetic: `+`, `-`, `*`, parentheses
 Penetrating: `4d6p`
-Labels: `"Attack:" 2d6, "Damage:" 1d8`
+Labels: `"Attack": 2d6, "Damage": 1d8` (colon goes AFTER the closing quote)
 Tags: `2d6 @type=fire @source=spell`
 Sorting: `4d6s`, `4d6sd`
