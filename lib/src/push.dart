@@ -57,6 +57,7 @@ Future<RollSummary> reroll(
     opType: OpType.reroll,
     results: newResults,
     discarded: newDiscarded,
+    left: summary.detailedResults,
   );
 
   return RollSummary(detailedResults: newRollResult);

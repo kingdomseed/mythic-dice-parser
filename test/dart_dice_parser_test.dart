@@ -1603,5 +1603,49 @@ void main() {
         );
       });
     });
+
+    group('push/reroll preserves tags', () {
+      test('tags survive a push operation', () async {
+        // Roll a tagged, labeled expression
+        final dice = DiceExpression.create(
+          '"Fire": 2d6 @type=fire @source=spell',
+          roller: PreRolledDiceRoller([2, 5]),
+        );
+        final summary = await dice.roll();
+        // Verify tags exist before push
+        expect(summary.groups, isNotNull);
+        expect(summary.groups!['Fire']!.tags!['type'], equals('fire'));
+        expect(summary.groups!['Fire']!.tags!['source'], equals('spell'));
+
+        // Push: lock the 5, reroll the 2
+        final pushed = await reroll(
+          summary,
+          lockWhere: (d) => d.result >= 5,
+          roller: PreRolledDiceRoller([4]),
+        );
+
+        // Tags should survive the push
+        expect(
+          pushed.groups,
+          isNotNull,
+          reason: 'groups should exist after push',
+        );
+        expect(
+          pushed.groups!['Fire']!.tags,
+          isNotNull,
+          reason: 'tags should not be lost on push',
+        );
+        expect(
+          pushed.groups!['Fire']!.tags!['type'],
+          equals('fire'),
+          reason: 'tag type=fire should survive push',
+        );
+        expect(
+          pushed.groups!['Fire']!.tags!['source'],
+          equals('spell'),
+          reason: 'tag source=spell should survive push',
+        );
+      });
+    });
   });
 }
