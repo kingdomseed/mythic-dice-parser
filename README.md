@@ -129,11 +129,28 @@ void main() {
          rolled `[1,18]`, the `1` is dropped and the result metadata won't record a critical failure.
          If that's not the behavior you want, move the counts prior to the drop (`2d20 #cf #cs kh`).
       
+* labeled groups (for multi-pool rolls like Year Zero Engine, Cortex Prime, etc.)
+  * `"Attack": 2d6, "Damage": 1d8` -- roll two labeled groups; results are separated into `GroupResult` objects accessible via `RollSummary.groups`
+  * `"Strength": 4d6kh3, "Dexterity": 4d6kh3` -- labels work with any sub-expression including keep/drop
+  * Labels preserve individual dice identity (no totalization). Unlabeled comma expressions (`2d6, 1d8`) totalize each side for backward compatibility.
+  * Discarded dice retain their group label, so `GroupResult.discarded` correctly reflects which group they came from.
+
+* tags (client-defined metadata on expressions)
+  * `2d6 @type=fire` -- attach a key-value tag to a roll
+  * `2d6 @type=fire @source=spell` -- multiple tags on the same expression
+  * Tags are stored on `GroupResult.tags` (when used with labels) or on `RollResult.tags`
+  * Tag values cannot contain spaces, commas, or closing parentheses
+
+* named die types (custom dice registration)
+  * `DiceExpression.registerDieType('fate', [-1, -1, 0, 0, 1, 1])` -- register a custom die
+  * `4dfate` -- roll 4 of the registered "fate" dice
+  * Names must contain only letters (no digits/spaces) and cannot be `f` or `F` (reserved for fudge dice)
+
 * arithmetic operations
   * parenthesis to force a certain order of operations
   * addition is a little special -- could be a sum of ints, or it can be used to aggregate results of multiple dice rolls
     * Addition of integers is the usual sum
-      * `4+5` 
+      * `4+5`
       * `2d6 + 1`
     * Addition of roll results combines the results (use parens to ensure the order of operations is what you desire)
       * `(5d6+5d10)-L2` -- roll 5d6 and 5d10, and from aggregate results drop the lowest 2.
@@ -219,6 +236,25 @@ Examples:
 ❯ dart example/main.dart  -s '3d6'
 {mean: 10.5, stddev: 2.97, min: 3, max: 18, count: 10000, histogram: {3: 49, 4: 121, 5: 273, 6: 461, 7: 727, 8: 961, 9: 1153, 10: 1182, 11: 1272, 12: 1151, 13: 952, 14: 733, 15: 486, 16: 289, 17: 154, 18: 36}}
 
+```
+
+Labels, tags, and groups:
+```console
+# labeled groups -- produces GroupResult objects in JSON output
+❯ dart run example/main.dart -o json -r 42 '"Attack": 2d6, "Damage": 1d8'
+{"expression":"...","total":8,"results":[{"result":2,...,"groupLabel":"Attack"},{"result":1,...,"groupLabel":"Attack"},{"result":5,...,"groupLabel":"Damage"}],"groups":{"Attack":{"label":"Attack","total":3,"results":[...]},"Damage":{"label":"Damage","total":5,"results":[...]}}}
+
+# labeled groups with keep/drop -- discarded dice retain their group label
+❯ dart run example/main.dart -o json -r 42 '"Attack": 4d6kh3, "Damage": 1d8'
+# Attack group has 3 kept results + 1 discarded die, all with groupLabel:"Attack"
+
+# tags -- attach key-value metadata to groups
+❯ dart run example/main.dart -o json -r 42 '"Fire": 2d6 @type=fire @source=spell'
+# output includes: "tags":{"type":"fire","source":"spell"} on the Fire group
+
+# all-discarded labeled group (e.g., drop all from one pool)
+❯ dart run example/main.dart -o json -r 42 '"Attack": 2d6-H2, "Damage": 1d8'
+# Attack group has 0 results, 2 discarded -- group is still present (not lost)
 ```
 
 Sometimes it's nice to change the output type so you can see the graph of results:
@@ -424,6 +460,51 @@ the events for your specific roll. In that case, pass an 'onRoll' method to the 
   );
 ```
 
+
+# Push / Re-roll
+
+The push mechanic (Year Zero Engine, etc.) allows locking certain dice and re-rolling the rest.
+This operates on a `RollSummary` result, not as grammar syntax.
+
+```dart
+import 'package:dart_dice_parser/dart_dice_parser.dart';
+
+void main() async {
+  final dice = DiceExpression.create('"Attack": 4d6');
+  final summary = await dice.roll();
+
+  // Lock dice >= 5, re-roll the rest
+  final pushed = await reroll(
+    summary,
+    lockWhere: (die) => die.result >= 5,
+  );
+
+  // pushed.results contains locked dice (unchanged) + newly rolled dice
+  // All dice retain their groupLabel through the push
+  print(pushed);
+
+  // Multi-push: push again, locking more dice
+  final pushed2 = await reroll(
+    pushed,
+    lockWhere: (die) => die.result >= 4,
+  );
+  print(pushed2);
+}
+```
+
+# Named Die Types
+
+Register custom dice for your game system:
+
+```dart
+// Register once (static, shared across all DiceExpression instances)
+DiceExpression.registerDieType('fate', [-1, -1, 0, 0, 1, 1]);
+DiceExpression.registerDieType('coin', [0, 1]);
+
+// Use in expressions
+final roll = await DiceExpression.create('4dfate').roll();
+final flip = await DiceExpression.create('1dcoin').roll();
+```
 
 # Features and bugs
 
