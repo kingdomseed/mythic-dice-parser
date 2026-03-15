@@ -161,30 +161,118 @@ void main() {
   * division is not supported.
 
 
-# Random Number Generator
+# Dice Roller
 
-By default, Random.secure() is used. You can select other RNGs when creating the
-dice expression. Random() will be faster than Random.secure(); if you're doing lots of rolls
-for use cases where security doesn't matter, you will want to use Random().
+The library uses a pluggable `DiceRoller` abstraction. You can use the built-in RNG roller,
+feed in physical dice results, or implement your own roller for 3D dice engines, Bluetooth dice,
+camera-read dice, or any other source.
 
-For example, you might create a dice-rolling app that both provides rolls _and_ displays statistics
-(mean, stddev, etc) about the dice expression. To do that, you might create two separate
-`DiceExpression` objects for the same user-input -- one with the secure RNG (run whenever a user
-clicks a button), and the second to display min/max/mean/stddev/etc
+## RNG Roller (default)
 
-```dart 
-  final diceExpr_SecureRNG = DiceExpression.create('2d6');
-  final diceExpr_FastRNG = DiceExpression.create('2d6', Random());
-  
-  //....
-  // on button-click, roll the dice
-  final roll = diceExpr_SecureRNG.roll();
-  
-  //....
-  // when dice expr changes, update the stats graph. 
-  final stats = await diceExpr_FastRNG.stats();
-  // output of stats: {mean: 6.98, stddev: 2.41, min: 2, max: 12, count: 10000, histogram: {2: 310, 3: 557, 4: 787, 5: 1090, 6: 1450, 7: 1646, 8: 1395, 9: 1147, 10: 825, 11: 526, 12: 267}}
+By default, `RNGRoller(Random.secure())` is used. You can select other RNGs when creating the
+dice expression. `Random()` will be faster than `Random.secure()`; if you're doing lots of rolls
+for use cases where security doesn't matter, you will want to use `Random()`.
 
+```dart
+  // Secure RNG (default)
+  final diceExpr = DiceExpression.create('2d6');
+
+  // Fast pseudo-random
+  final fastExpr = DiceExpression.create('2d6', roller: RNGRoller(Random()));
+
+  // Seeded for deterministic/reproducible results (great for testing)
+  final seededExpr = DiceExpression.create('2d6', roller: RNGRoller(Random(42)));
+
+  final roll = await diceExpr.roll();
+  final stats = await fastExpr.stats();
+```
+
+## PreRolledDiceRoller (physical dice, manual entry)
+
+When dice are rolled externally (physical dice, camera-read, manual entry), pass the results
+in and get a full `RollSummary` with all the engine's features (keep/drop, exploding, labels,
+groups, scoring, etc.).
+
+```dart
+  // User rolled physical dice and got: 3, 5, 2, 6 for Attack, 4 for Damage
+  final dice = DiceExpression.create(
+    '"Attack": 4d6kh3, "Damage": 1d8',
+    roller: PreRolledDiceRoller([3, 5, 2, 6, 4]),
+  );
+  final summary = await dice.roll();
+  // summary.groups['Attack']!.total == 14 (kept 5+3+6, dropped 2)
+  // summary.groups['Damage']!.total == 4
+```
+
+Values are consumed in the order the parser requests rolls. If the expression needs more
+values than provided (e.g., exploding dice trigger extra rolls), a
+`PreRolledDiceRollerExhaustedException` is thrown. Values are also range-validated against
+the die type (e.g., passing `7` for a d6 throws a `RangeError`).
+
+## CallbackDiceRoller (interactive / async dice input)
+
+For interactive scenarios where you prompt the user for each roll as needed (3D dice
+engines that settle asynchronously, Bluetooth dice, or a "what did you roll?" UI prompt):
+
+```dart
+  final dice = DiceExpression.create(
+    '4d6kh3',
+    roller: CallbackDiceRoller(
+      rollCallback: ({
+        required int ndice,
+        required int nsides,
+        required int min,
+        required DieType dieType,
+      }) async {
+        // Prompt user: "Roll 4d6, what did you get?"
+        // Or: wait for 3D dice physics to settle
+        // Or: read from Bluetooth dice hardware
+        return [3, 5, 2, 6];
+      },
+      rollValsCallback: <T>(int ndice, List<T> vals, {required DieType dieType}) async {
+        // For custom-faced dice (fudge, named types, etc.)
+        return vals.take(ndice).toList();
+      },
+    ),
+  );
+  final summary = await dice.roll();
+```
+
+`CallbackDiceRoller` is more powerful than `PreRolledDiceRoller` for real dice input because
+it handles **on-demand requests**. With exploding dice (`4d6!`), you can't know upfront how
+many rolls you'll need -- a max roll triggers an extra roll. `CallbackDiceRoller` will call
+your callback again: "Roll 1 more d6" (the explosion). `PreRolledDiceRoller` would throw
+if it runs out of pre-supplied values.
+
+## Custom DiceRoller implementations
+
+Implement the `DiceRoller` abstract class for full control:
+
+```dart
+class My3DDiceRoller extends DiceRoller {
+  @override
+  Stream<int> roll({
+    required int ndice,
+    required int nsides,
+    int min = 1,
+    DieType dieType = DieType.polyhedral,
+  }) async* {
+    // Launch 3D dice animation, wait for physics to settle
+    for (var i = 0; i < ndice; i++) {
+      final result = await launchAndWaitForDie(nsides);
+      yield result;
+    }
+  }
+
+  @override
+  Stream<T> rollVals<T>(int ndice, List<T> vals,
+      {DieType dieType = DieType.polyhedral}) async* {
+    for (var i = 0; i < ndice; i++) {
+      final result = await launchAndWaitForCustomDie(vals);
+      yield result;
+    }
+  }
+}
 ```
 
 # CLI Usage
