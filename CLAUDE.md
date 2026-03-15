@@ -83,6 +83,11 @@ example/
 - **Immutability:** Extensive use of `fast_immutable_collections` (`IList`). All result objects are immutable value types.
 - **Equality:** Uses `Equatable` mixin for value equality.
 
+## Reference Documents
+
+- **`architecture-spec.md`** — Authoritative design spec covering the full conversion from upstream `dart-dice-parser`. Defines package vs client responsibilities, design decisions (D1-D9), target architecture, implementation phases (1-4), and future considerations. Use this to understand *why* things are designed the way they are.
+- **`implementation-plans.md`** — Phase-by-phase implementation details with code snippets, file-level changes, risks, and post-implementation fixes. Includes known architectural debt notes.
+
 ## Key Dependencies
 
 | Package | Purpose |

@@ -11,7 +11,11 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
   final builder = ExpressionBuilder<DiceExpression>();
   // numbers
   builder.primitive(
-    digit().star().flatten(message: 'integer expected').trim().map(SimpleValue.new),
+    digit()
+        .star()
+        .flatten(message: 'integer expected')
+        .trim()
+        .map(SimpleValue.new),
   );
   // parens & curlies
   builder.group()
