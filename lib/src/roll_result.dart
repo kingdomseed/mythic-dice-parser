@@ -15,9 +15,10 @@ class RollResult extends Equatable {
     Iterable<RolledDie> discarded = const IList.empty(),
     this.left,
     this.right,
-    this.tags,
+    Map<String, String>? tags,
   }) : results = IList(results),
-       discarded = IList(discarded);
+       discarded = IList(discarded),
+       tags = tags != null ? Map.unmodifiable(tags) : null;
 
   /// factory constructor to merge [other] with the params of this function
   /// and produce a new [RollResult].

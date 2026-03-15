@@ -1403,4 +1403,191 @@ void main() {
       expect(locked.length, greaterThanOrEqualTo(2));
     });
   });
+
+  // ===================================================================
+  // Verification tests: prove agent claims about bugs and fixes.
+  // ===================================================================
+
+  group('PR review verification', () {
+    group('CommaOp hasLabels with all-discarded groups', () {
+      test('labeled group with all dice discarded still produces groups',
+          () async {
+        // Agent claim: if ALL results are discarded in a labeled group,
+        // CommaOp should still enter labeled mode. Before the fix,
+        // hasLabels only checked .results (which would be empty).
+        final dice = DiceExpression.create(
+          '"Attack": 2d6-H2, "Damage": 1d8',
+          roller: PreRolledDiceRoller([3, 4, 5]),
+        );
+        final summary = await dice.roll();
+        // The critical assertion: groups should NOT be null.
+        // Before fix, this was null because hasLabels was false.
+        expect(summary.groups, isNotNull,
+            reason: 'CommaOp should detect labels in discarded dice');
+        expect(summary.groups!.keys, contains('Attack'));
+        expect(summary.groups!.keys, contains('Damage'));
+        // Attack group should have 0 results but 2 discarded
+        expect(summary.groups!['Attack']!.results, isEmpty);
+        expect(summary.groups!['Attack']!.discarded, hasLength(2));
+        expect(summary.groups!['Damage']!.total, equals(5));
+      });
+
+      test('both sides all-discarded still produces groups', () async {
+        // Edge case: BOTH sides have all dice discarded.
+        final dice = DiceExpression.create(
+          '"A": 2d6-H2, "B": 2d6-H2',
+          roller: PreRolledDiceRoller([1, 2, 3, 4]),
+        );
+        final summary = await dice.roll();
+        expect(summary.groups, isNotNull,
+            reason: 'Both sides all-discarded should still produce groups');
+        expect(summary.groups!['A']!.results, isEmpty);
+        expect(summary.groups!['B']!.results, isEmpty);
+        expect(summary.groups!['A']!.discarded, hasLength(2));
+        expect(summary.groups!['B']!.discarded, hasLength(2));
+      });
+    });
+
+    group('GroupResult lazy getters match stored values', () {
+      test('total computed from results matches expected', () async {
+        final dice = DiceExpression.create(
+          '"Hit": 3d6',
+          roller: PreRolledDiceRoller([2, 3, 5]),
+        );
+        final summary = await dice.roll();
+        final group = summary.groups!['Hit']!;
+        // Verify lazy getter produces correct sum
+        expect(group.total, equals(10));
+        // Verify it matches manual sum of results
+        expect(
+          group.total,
+          equals(group.results.fold<int>(0, (sum, d) => sum + d.result)),
+        );
+      });
+
+      test('success/failure counts computed correctly', () async {
+        // Use scoring: #s>=5 #f<=2 on labeled dice
+        final dice = DiceExpression.create(
+          '"Roll": 4d6 #s>=5 #f<=2',
+          roller: PreRolledDiceRoller([1, 3, 5, 6]),
+        );
+        final summary = await dice.roll();
+        final group = summary.groups!['Roll']!;
+        expect(group.successCount, equals(2)); // 5 and 6
+        expect(group.failureCount, equals(1)); // 1
+      });
+    });
+
+    group('tag parser without .plus()', () {
+      test('single tag still works', () async {
+        final dice = DiceExpression.create(
+          '"Fire": 2d6 @type=fire',
+          roller: PreRolledDiceRoller([3, 4]),
+        );
+        final summary = await dice.roll();
+        expect(summary.groups!['Fire']!.tags!['type'], equals('fire'));
+      });
+
+      test('multiple space-separated tags work via ExpressionBuilder',
+          () async {
+        // Agent claim: .plus() was dead weight - ExpressionBuilder's
+        // .star() handles multi-tag by re-applying the postfix operator.
+        // TagOp.merge() merges tags via spread.
+        final dice = DiceExpression.create(
+          '"Spell": 1d10 @type=fire @source=spell',
+          roller: PreRolledDiceRoller([7]),
+        );
+        final summary = await dice.roll();
+        expect(summary.groups!['Spell']!.tags!['type'], equals('fire'));
+        expect(summary.groups!['Spell']!.tags!['source'], equals('spell'));
+      });
+
+      test('three tags all preserved', () async {
+        // Push further: 3 tags should all survive through nested TagOps.
+        final dice = DiceExpression.create(
+          '"X": 1d6 @a=1 @b=2 @c=3',
+          roller: PreRolledDiceRoller([4]),
+        );
+        final summary = await dice.roll();
+        expect(summary.groups!['X']!.tags, hasLength(3));
+        expect(summary.groups!['X']!.tags!['a'], equals('1'));
+        expect(summary.groups!['X']!.tags!['b'], equals('2'));
+        expect(summary.groups!['X']!.tags!['c'], equals('3'));
+      });
+    });
+
+    group('toJson totaled field', () {
+      test('totaled appears in toJson for totalized dice', () async {
+        // Unlabeled comma totalizes each side into a singleVal die
+        // marked totaled=true.
+        final dice = DiceExpression.create(
+          '2d6, 1d8',
+          roller: PreRolledDiceRoller([3, 4, 5]),
+        );
+        final summary = await dice.roll();
+        final json = summary.toJson();
+        // The results should be totalized singleVal dice
+        final results = json['results'] as List;
+        // At least one result should have totaled=true
+        final hasTotaled = results.any(
+          (r) => r is Map && r['totaled'] == true,
+        );
+        expect(hasTotaled, isTrue,
+            reason: 'totaled field should appear in toJson output');
+      });
+
+      test('totaled omitted when false', () async {
+        // A simple non-comma roll should not have totaled in JSON
+        final dice = DiceExpression.create(
+          '1d6',
+          roller: PreRolledDiceRoller([4]),
+        );
+        final summary = await dice.roll();
+        final json = summary.toJson();
+        final results = json['results'] as List;
+        // No result should have a 'totaled' key (removeWhere strips false)
+        final hasTotaled = results.any(
+          (r) => r is Map && r.containsKey('totaled'),
+        );
+        expect(hasTotaled, isFalse,
+            reason: 'totaled=false should be stripped by removeWhere');
+      });
+    });
+
+    group('LabelOp stamps discarded (agent claim: already fixed)', () {
+      test('discarded dice from keep/drop have groupLabel', () async {
+        final dice = DiceExpression.create(
+          '"Roll": 4d6kh3',
+          roller: PreRolledDiceRoller([2, 3, 5, 6]),
+        );
+        final summary = await dice.roll();
+        // All 3 kept dice should have label
+        expect(summary.results.every((d) => d.groupLabel == 'Roll'), isTrue);
+        // The 1 discarded die should also have label
+        expect(summary.discarded.length, equals(1));
+        expect(summary.discarded.first.groupLabel, equals('Roll'));
+      });
+    });
+
+    group('push/reroll groupLabel (agent claim: already fixed)', () {
+      test('rerolled dice retain groupLabel from original', () async {
+        final dice = DiceExpression.create(
+          '"Attack": 2d6',
+          roller: PreRolledDiceRoller([2, 5]),
+        );
+        final summary = await dice.roll();
+        final pushed = await reroll(
+          summary,
+          lockWhere: (d) => d.result >= 5,
+          roller: PreRolledDiceRoller([4]),
+        );
+        // ALL results (locked and rerolled) should have groupLabel
+        expect(
+          pushed.results.every((d) => d.groupLabel == 'Attack'),
+          isTrue,
+          reason: 'rerolled dice must retain groupLabel',
+        );
+      });
+    });
+  });
 }

@@ -289,6 +289,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
         'clampLow': clampFloor,
         'penetrated': penetrated,
         'penetrator': penetrator,
+        'totaled': totaled,
         'groupLabel': groupLabel,
         'locked': locked,
       }..removeWhere(

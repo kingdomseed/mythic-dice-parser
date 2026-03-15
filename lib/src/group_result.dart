@@ -13,14 +13,10 @@ class GroupResult extends Equatable {
     required this.label,
     required Iterable<RolledDie> results,
     required Iterable<RolledDie> discarded,
-    this.tags,
+    Map<String, String>? tags,
   }) : results = IList(results),
        discarded = IList(discarded),
-       total = IList(results).sum,
-       successCount = IList(results).successCount,
-       failureCount = IList(results).failureCount,
-       critSuccessCount = IList(results).critSuccessCount,
-       critFailureCount = IList(results).critFailureCount;
+       tags = tags != null ? Map.unmodifiable(tags) : null;
 
   /// The group's label (e.g., "Attack"). Empty string for anonymous groups.
   final String label;
@@ -31,29 +27,18 @@ class GroupResult extends Equatable {
   /// Dice discarded during evaluation of this group.
   final IList<RolledDie> discarded;
 
-  /// Sum of results.
-  final int total;
-
-  final int successCount;
-  final int failureCount;
-  final int critSuccessCount;
-  final int critFailureCount;
+  /// Computed from results — matches the pattern used by RollResult.
+  int get total => results.sum;
+  int get successCount => results.successCount;
+  int get failureCount => results.failureCount;
+  int get critSuccessCount => results.critSuccessCount;
+  int get critFailureCount => results.critFailureCount;
 
   /// Client-defined tags from @key=value syntax.
   final Map<String, String>? tags;
 
   @override
-  List<Object?> get props => [
-    label,
-    results,
-    discarded,
-    total,
-    successCount,
-    failureCount,
-    critSuccessCount,
-    critFailureCount,
-    tags,
-  ];
+  List<Object?> get props => [label, results, discarded, tags];
 
   Map<String, dynamic> toJson() =>
       {

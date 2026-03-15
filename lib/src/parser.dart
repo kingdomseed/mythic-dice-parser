@@ -11,7 +11,7 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
   final builder = ExpressionBuilder<DiceExpression>();
   // numbers
   builder.primitive(
-    digit().star().flatten('integer expected').trim().map(SimpleValue.new),
+    digit().star().flatten(message: 'integer expected').trim().map(SimpleValue.new),
   );
   // parens & curlies
   builder.group()
@@ -166,9 +166,8 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
         letter().plus().flatten(),
         char('='),
         pattern('^ ,)').plus().flatten(),
-      ).plus().trim(),
-      (a, tags) =>
-          TagOp(a, Map.fromEntries(tags.map((t) => MapEntry(t.$2, t.$4)))),
+      ).trim(),
+      (a, tag) => TagOp(a, {tag.$2: tag.$4}),
     )
     ..left(char(',').trim(), (a, op, b) => CommaOp(op, a, b));
   return builder.build().end();

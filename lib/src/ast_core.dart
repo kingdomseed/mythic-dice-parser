@@ -53,10 +53,16 @@ class CommaOp extends Binary {
     final lhs = await left();
     final rhs = await right();
 
-    // Check if any child has labeled dice (from LabelOp)
+    // Check if any child has labeled dice (from LabelOp).
+    // Must check both results and discarded — if all dice in a labeled group
+    // are discarded (e.g., keep-0), results is empty but discarded carries
+    // the labels. Without this, we'd incorrectly fall through to totalized
+    // mode and destroy group identity.
     final hasLabels =
         lhs.results.any((d) => d.groupLabel != null) ||
-        rhs.results.any((d) => d.groupLabel != null);
+        lhs.discarded.any((d) => d.groupLabel != null) ||
+        rhs.results.any((d) => d.groupLabel != null) ||
+        rhs.discarded.any((d) => d.groupLabel != null);
 
     if (hasLabels) {
       // Labeled mode: preserve individual die identity within groups.

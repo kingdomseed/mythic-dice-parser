@@ -171,7 +171,10 @@ class LabelOp extends Unary {
   @override
   Future<RollResult> eval() async {
     final result = await left();
-    // Stamp groupLabel onto all results
+    // Stamp groupLabel onto both results AND discarded dice.
+    // Discarded dice (from keep/drop ops) must also carry the label
+    // so that RollSummary._buildGroups() can correctly assign them
+    // to the right GroupResult.
     return RollResult.fromRollResult(
       result,
       expression: toString(),
@@ -179,7 +182,9 @@ class LabelOp extends Unary {
       results: result.results.map(
         (d) => RolledDie.copyWith(d, groupLabel: label),
       ),
-      discarded: result.discarded,
+      discarded: result.discarded.map(
+        (d) => RolledDie.copyWith(d, groupLabel: label),
+      ),
     );
   }
 }
@@ -472,7 +477,11 @@ RollSummary({required this.detailedResults})
 
 static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
   // Only build groups when the expression used labels.
-  final hasLabels = detailedResults.results.any((d) => d.groupLabel != null);
+  // Check both results and discarded — if all dice in a labeled group are
+  // discarded (e.g., keep-0), results is empty but discarded carries labels.
+  final hasLabels =
+      detailedResults.results.any((d) => d.groupLabel != null) ||
+      detailedResults.discarded.any((d) => d.groupLabel != null);
   if (!hasLabels) return null;
 
   // Group results by their groupLabel
@@ -494,11 +503,13 @@ static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
   final groupTags = <String, Map<String, String>>{};
   _harvestTags(detailedResults, groupTags);
 
+  // Use union of both key sets so groups with only discarded dice are included.
+  final allLabels = {...grouped.keys, ...groupedDiscarded.keys};
   return {
-    for (final label in grouped.keys)
+    for (final label in allLabels)
       label: GroupResult(
         label: label,
-        results: grouped[label]!,
+        results: grouped[label] ?? [],
         discarded: groupedDiscarded[label] ?? [],
         tags: groupTags[label],
       ),
@@ -642,6 +653,32 @@ The following tests rely on the current `CommaOp` behavior of collapsing sub-exp
      expect(result.groups!['Strength']!.results.length, 3);
    });
    ```
+
+### 3.4 Post-Implementation Fixes (applied to live code)
+
+**CommaOp.hasLabels fix:** The original `hasLabels` check in `CommaOp.eval()` only
+inspected `.results`, not `.discarded`. When both sides of a comma expression had all
+dice discarded (e.g., `"A": 2d6-H2, "B": 2d6-H2`), `hasLabels` was false and the
+expression incorrectly fell through to `_evalTotalized`, destroying group identity.
+Fix: check both `.results` and `.discarded` on both sides.
+
+**Known architectural debt:** The labeled vs totalized branching in `CommaOp` is
+determined at runtime by inspecting dice metadata. A cleaner long-term design would
+determine this statically from the AST structure (e.g., split into `GroupCommaOp` /
+`TotalCommaOp` at parse time). The runtime check is fragile because any operator that
+transforms dice could strip metadata and silently break detection.
+
+**GroupResult lazy getters:** The original constructor wrapped `results` in `IList()` 6
+times. Converted computed stats (total, successCount, etc.) to lazy getters, matching
+the pattern used by `RollResult`.
+
+**Tag parser .plus() removal:** Removed redundant `.plus()` from tag postfix parser.
+The `ExpressionBuilder`'s own `.star()` handles multi-tag repetition by re-applying the
+postfix operator. Each application creates a `TagOp`, and `TagOp.eval()` merges tags
+via spread (`{...?result.tags, ...tags}`).
+
+**PetitParser 7 migration:** Updated `flatten('msg')` to `flatten(message: 'msg')` for
+compatibility with petitparser ^7.0.2.
 
 ### 3.4 Risks & Open Items
 
