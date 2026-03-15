@@ -167,11 +167,13 @@ class RollSummary extends Equatable {
     Map<String, Map<String, String>> groupTags,
   ) {
     if (node.tags != null && node.tags!.isNotEmpty) {
-      // Find all distinct group labels from this node's results
-      final labels = node.results
-          .map((d) => d.groupLabel)
-          .whereType<String>()
-          .toSet();
+      // Find all distinct group labels from this node's results AND
+      // discarded dice. When all dice are discarded (e.g., keep-0),
+      // results is empty but discarded carries the labels.
+      final labels = {
+        ...node.results.map((d) => d.groupLabel).whereType<String>(),
+        ...node.discarded.map((d) => d.groupLabel).whereType<String>(),
+      };
       if (labels.isEmpty) {
         // No labels found; assign to the anonymous group.
         groupTags.putIfAbsent('', () => {}).addAll(node.tags!);

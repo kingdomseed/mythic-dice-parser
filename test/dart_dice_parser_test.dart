@@ -1647,5 +1647,32 @@ void main() {
         );
       });
     });
+
+    group('_harvestTags checks discarded for labels', () {
+      test(
+        'tags preserved when all dice in tagged group are discarded',
+        () async {
+          // When "A": 2d6-H2 drops all dice, _harvestTags must still
+          // associate tags with group "A" by checking discarded dice labels.
+          final dice = DiceExpression.create(
+            '"A": 2d6-H2 @type=fire, "B": 1d8',
+            roller: PreRolledDiceRoller([3, 4, 5]),
+          );
+          final summary = await dice.roll();
+          expect(summary.groups, isNotNull);
+          expect(summary.groups!.keys, contains('A'));
+          // A has 0 results, 2 discarded — tags must still be on group A
+          expect(summary.groups!['A']!.results, isEmpty);
+          expect(summary.groups!['A']!.discarded, hasLength(2));
+          expect(
+            summary.groups!['A']!.tags,
+            isNotNull,
+            reason:
+                '_harvestTags should find labels in discarded when results is empty',
+          );
+          expect(summary.groups!['A']!.tags!['type'], equals('fire'));
+        },
+      );
+    });
   });
 }
