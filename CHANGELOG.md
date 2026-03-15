@@ -1,3 +1,32 @@
+# 8.0.0
+
+## ⚠️⚠️ Breaking changes ⚠️⚠️
+
+- `roll()` and all AST evaluation are now fully async (`Future<RollSummary>`)
+- `RollResult.results` and `RollResult.discarded` are now `IList<RolledDie>` (immutable)
+- `DiceExpression.create()` accepts a `DiceRoller` via the `roller:` named parameter instead of a positional `Random`
+- `RollSummary` replaces the old metadata map with structured fields: `results`, `discarded`, `groups`, `detailedResults`
+- Upgraded `petitparser` from ^6.1.0 to ^7.0.2
+
+## 📈 Enhancements
+- **Labeled groups:** `"Attack": 2d6, "Damage": 1d8` -- comma-separated labeled expressions produce `GroupResult` objects via `RollSummary.groups`
+- **Tags:** `2d6 @type=fire @source=spell` -- attach key-value metadata to expressions, harvested into `GroupResult.tags`
+- **Named die types:** `DiceExpression.registerDieType('fate', [-1,-1,0,0,1,1])` then use `4dfate` in expressions
+- **Pluggable dice roller:** `DiceRoller` abstract class with three implementations:
+  - `RNGRoller` -- wraps `Random` (default)
+  - `PreRolledDiceRoller` -- feed in physical/external dice results
+  - `CallbackDiceRoller` -- async on-demand prompts (3D dice, Bluetooth, manual entry)
+- **Push/reroll:** `reroll(summary, lockWhere: ..., roller: ...)` re-rolls unlocked dice, preserving locked dice and group structure. Supports multi-push.
+- **RolledDie enrichment:** `groupLabel`, `locked`, `totaled` fields. `toJson()` now includes `totaled`.
+- **GroupResult:** per-group `total`, `successCount`, `failureCount`, `critSuccessCount`, `critFailureCount` (computed lazily), `discarded`, and `tags`
+- **Immutable tags:** `RollResult.tags` and `GroupResult.tags` are now `Map.unmodifiable()`
+- **Penetrating dice:** `4d6p` syntax
+
+## 🛠️ Bug fixes
+- `CommaOp.hasLabels` now checks both `.results` and `.discarded`, fixing a bug where all-discarded labeled groups lost their group identity
+- `GroupResult` stats converted from redundant stored fields (6x `IList` wrapping) to lazy getters
+- Removed dead `.plus()` from tag postfix parser -- `ExpressionBuilder.star()` handles multi-tag repetition
+
 # 7.1.1
 ## 🛠️ Bug fixes
 - fix typo in readme
