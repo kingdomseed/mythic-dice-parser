@@ -1160,7 +1160,7 @@ Add `import 'dice_expression.dart';` if not already present (it is already impor
 1. **Phase 0A:** Fix `clearSummaryListeners()` bug (5 minutes)
 2. **Phase 0B:** Delete dead code files (5 minutes)
 3. **Phase 3:** Groups, Labels, Tags (largest piece of work)
-   - 3a: Add `groupLabel` and `tags` fields to `RolledDie` **(MUST be first — 3b depends on these fields existing)**
+   - 3a: Add `groupLabel` field to `RolledDie` **(MUST be first — 3b depends on this field existing)**
    - 3b: Add `LabelOp` and `TagOp` AST nodes (calls `RolledDie.copyWith` with `groupLabel`/`tags`)
    - 3c: Rework `CommaOp` to preserve die identity
    - 3d: Add grammar rules for labels and tags

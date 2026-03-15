@@ -29,7 +29,7 @@ abstract class DiceExpression {
   }
 
   static void clearSummaryListeners() {
-    listeners.clear();
+    summaryListeners.clear();
   }
 
   static void callListeners(
