@@ -165,9 +165,11 @@ class RollSummary extends Equatable {
   ) {
     if (node.tags != null && node.tags!.isNotEmpty) {
       // Find the group label from this node's results
-      final label = node.results
-          .map((d) => d.groupLabel)
-          .firstWhere((l) => l != null, orElse: () => null) ?? '';
+      final label =
+          node.results
+              .map((d) => d.groupLabel)
+              .firstWhere((l) => l != null, orElse: () => null) ??
+          '';
       groupTags.putIfAbsent(label, () => {}).addAll(node.tags!);
     }
     if (node.left != null) _harvestTags(node.left!, groupTags);

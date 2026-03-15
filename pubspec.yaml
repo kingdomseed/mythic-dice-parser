@@ -21,6 +21,7 @@ dependencies:
   petitparser: ^6.1.0
 
 dev_dependencies:
+  args: ^2.0.0
   io: ^1.0.0
   lint: ^2.8.0
   mocktail: ^1.0.0

@@ -44,8 +44,14 @@ class GroupResult extends Equatable {
 
   @override
   List<Object?> get props => [
-    label, results, discarded, total,
-    successCount, failureCount, critSuccessCount, critFailureCount,
+    label,
+    results,
+    discarded,
+    total,
+    successCount,
+    failureCount,
+    critSuccessCount,
+    critFailureCount,
     tags,
   ];
 

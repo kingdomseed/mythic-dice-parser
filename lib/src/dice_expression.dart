@@ -83,9 +83,8 @@ abstract class DiceExpression {
 
   /// Look up a registered die type. Returns null if not found.
   /// Used internally by the parser.
-  static List<int>? getDieType(String name) {
-    return _dieTypeRegistry[name.toLowerCase()];
-  }
+  static List<int>? getDieType(String name) =>
+      _dieTypeRegistry[name.toLowerCase()];
 
   /// Parse the given input into a DiceExpression
   ///

@@ -54,7 +54,8 @@ class CommaOp extends Binary {
     final rhs = await right();
 
     // Check if any child has labeled dice (from LabelOp)
-    final hasLabels = lhs.results.any((d) => d.groupLabel != null) ||
+    final hasLabels =
+        lhs.results.any((d) => d.groupLabel != null) ||
         rhs.results.any((d) => d.groupLabel != null);
 
     if (hasLabels) {
@@ -67,16 +68,14 @@ class CommaOp extends Binary {
   }
 
   /// New behavior for labeled groups: pass through individual dice.
-  RollResult _evalLabeled(RollResult lhs, RollResult rhs) {
-    return RollResult(
-      expression: toString(),
-      opType: OpType.comma,
-      results: [...lhs.results, ...rhs.results],
-      discarded: [...lhs.discarded, ...rhs.discarded],
-      left: lhs,
-      right: rhs,
-    );
-  }
+  RollResult _evalLabeled(RollResult lhs, RollResult rhs) => RollResult(
+    expression: toString(),
+    opType: OpType.comma,
+    results: [...lhs.results, ...rhs.results],
+    discarded: [...lhs.discarded, ...rhs.discarded],
+    left: lhs,
+    right: rhs,
+  );
 
   /// Existing behavior: collapse each sub-expression to a singleVal total.
   RollResult _evalTotalized(RollResult lhs, RollResult rhs) {

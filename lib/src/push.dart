@@ -32,7 +32,8 @@ Future<RollSummary> reroll(
     // Auto-lock singleVal/totaled dice -- these are constants (e.g., +3)
     // that should never be re-rolled. Also respect already-locked dice
     // and the caller's lock predicate.
-    final shouldLock = die.locked ||
+    final shouldLock =
+        die.locked ||
         die.dieType == DieType.singleVal ||
         die.totaled ||
         lockWhere(die);
