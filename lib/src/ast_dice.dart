@@ -175,6 +175,35 @@ class D66Dice extends UnaryDice {
   }
 }
 
+/// Roll dice with faces from a named die type registry.
+/// NOTE: `super.roller` is a `DiceResultRoller` (not `DiceRoller`), matching
+/// the `UnaryDice` constructor signature. The parser passes its `roller`
+/// variable which is already a `DiceResultRoller`.
+class NamedDice extends UnaryDice {
+  NamedDice(super.op, super.left, super.roller, this.dieName, this.faces);
+
+  final String dieName;
+  final IList<int> faces;
+
+  @override
+  String toString() => '(${left}d$dieName)';
+
+  @override
+  Future<RollResult> eval() async {
+    final lhs = await left();
+    final ndice = lhs.totalOrDefault(() => 1);
+
+    final roll = await roller.rollVals(ndice, faces);
+
+    return RollResult.fromRollResult(
+      roll,
+      expression: toString(),
+      opType: OpType.rollVals,
+      left: lhs,
+    );
+  }
+}
+
 /// roll N dice of Y sides.
 class StdDice extends BinaryDice {
   StdDice(super.name, super.left, super.right, super.roller);

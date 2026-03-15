@@ -53,6 +53,40 @@ abstract class DiceExpression {
     exprLogger.fine(() => '$rollResult');
   }
 
+  /// Registry of custom die types. Maps name -> face values.
+  /// Populated by client at startup via [registerDieType].
+  static final Map<String, List<int>> _dieTypeRegistry = {};
+
+  /// Register a named die type for use in expressions.
+  ///
+  /// After registration, expressions can reference the die by name:
+  /// ```dart
+  /// DiceExpression.registerDieType('fate', [-1, -1, 0, 0, 1, 1]);
+  /// final expr = DiceExpression.create('4dfate');
+  /// ```
+  static void registerDieType(String name, List<int> faces) {
+    if (faces.isEmpty) {
+      throw ArgumentError('Die type faces must be non-empty');
+    }
+    _dieTypeRegistry[name.toLowerCase()] = List.unmodifiable(faces);
+  }
+
+  /// Unregister a named die type.
+  static void unregisterDieType(String name) {
+    _dieTypeRegistry.remove(name.toLowerCase());
+  }
+
+  /// Clear all registered die types.
+  static void clearDieTypes() {
+    _dieTypeRegistry.clear();
+  }
+
+  /// Look up a registered die type. Returns null if not found.
+  /// Used internally by the parser.
+  static List<int>? getDieType(String name) {
+    return _dieTypeRegistry[name.toLowerCase()];
+  }
+
   /// Parse the given input into a DiceExpression
   ///
   /// Throws [FormatException] if invalid

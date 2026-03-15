@@ -15,6 +15,7 @@ class RollResult extends Equatable {
     Iterable<RolledDie> discarded = const IList.empty(),
     this.left,
     this.right,
+    this.tags,
   }) : results = IList(results),
        discarded = IList(discarded);
 
@@ -28,6 +29,7 @@ class RollResult extends Equatable {
     Iterable<RolledDie>? discarded,
     RollResult? left,
     RollResult? right,
+    Map<String, String>? tags,
   }) => RollResult(
     expression: expression,
     opType: opType ?? other.opType,
@@ -35,6 +37,7 @@ class RollResult extends Equatable {
     discarded: IList.orNull(discarded) ?? other.discarded,
     left: left ?? other.left,
     right: right ?? other.right,
+    tags: tags ?? other.tags,
   );
 
   /// addition operator for [RollResult].
@@ -104,6 +107,9 @@ class RollResult extends Equatable {
 
   final OpType opType;
 
+  /// Client-defined tags from @key=value syntax. Set by TagOp.
+  final Map<String, String>? tags;
+
   /// sum of [results]
   int get total => totalOrDefault(() => 0);
 
@@ -122,6 +128,7 @@ class RollResult extends Equatable {
     results,
     discarded,
     opType,
+    tags,
     //left,
     //right,
   ];

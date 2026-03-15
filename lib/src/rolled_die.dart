@@ -29,6 +29,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     this.clampFloor = false,
     this.totaled = false,
     this.from = const IList.empty(),
+    this.groupLabel,
   }) : potentialValues = IList(potentialValues) {
     if (dieType.requirePotentialValues && potentialValues.isEmpty) {
       throw ArgumentError(
@@ -115,6 +116,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     bool? clampLow,
     bool? totaled,
     Iterable<RolledDie>? from,
+    String? groupLabel,
   }) => RolledDie(
     potentialValues: other.potentialValues,
     nsides: other.nsides,
@@ -137,6 +139,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     clampFloor: clampLow ?? other.clampFloor,
     totaled: totaled ?? other.totaled,
     from: IList.orNull(from) ?? IList([other]),
+    groupLabel: groupLabel ?? other.groupLabel,
   );
 
   factory RolledDie.discard(RolledDie other) =>
@@ -223,6 +226,10 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
   /// true if the result is a sum of other die results
   final bool totaled;
 
+  /// The group label this die belongs to (from "Label:" syntax).
+  /// null if no label was applied.
+  final String? groupLabel;
+
   bool get isMaxResult => result == maxPotentialValue;
 
   bool get isCountable => minPotentialValue != maxPotentialValue;
@@ -250,6 +257,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     clampFloor,
     penetrated,
     penetrator,
+    groupLabel,
   ];
 
   Map<String, dynamic> toJson() =>
@@ -273,6 +281,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
         'clampLow': clampFloor,
         'penetrated': penetrated,
         'penetrator': penetrator,
+        'groupLabel': groupLabel,
       }..removeWhere(
         (k, v) =>
             v == null ||

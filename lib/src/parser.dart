@@ -1,3 +1,4 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:petitparser/petitparser.dart';
 
 import 'ast_core.dart';
@@ -51,6 +52,22 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
         nsides: op.$2,
         nsidesPenetration: op.$4,
       ),
+    )
+    ..postfix(
+      seq2(
+        char('d').trim(),
+        letter().plus().flatten().trim(),
+      ).where((v) {
+        // Only match if the name is a registered die type
+        // and is NOT one of the built-in special names (F, %).
+        final name = v.$2.toLowerCase();
+        return name != 'f' && DiceExpression.getDieType(name) != null;
+      }),
+      (a, op) {
+        final name = op.$2.toLowerCase();
+        final faces = DiceExpression.getDieType(name)!;
+        return NamedDice(op.toString(), a, roller, name, IList(faces));
+      },
     );
   builder.group().left(
     char('d').trim(),
@@ -133,6 +150,24 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
     ..postfix(
       (char('s') & char('d').optional()).flatten().trim(),
       (a, op) => SortOp(op.toLowerCase(), a),
+    );
+
+  // Labels, tags, and comma — lower precedence than count/sort so that
+  // each sub-expression gets scored before comma joins them.
+  builder.group()
+    ..prefix(
+      (char('"') & pattern('^"').star().flatten() & string('":').trim())
+          .map((v) => v.$2),
+      (label, a) => LabelOp(label, a),
+    )
+    ..postfix(
+      (char('@') & letter().plus().flatten() & char('=') &
+              pattern('^ ,)').plus().flatten())
+          .plus().trim(),
+      (a, tags) => TagOp(
+        a,
+        Map.fromEntries(tags.map((t) => MapEntry(t.$2, t.$4))),
+      ),
     )
     ..left(char(',').trim(), (a, op, b) => CommaOp(op, a, b));
   return builder.build().end();
