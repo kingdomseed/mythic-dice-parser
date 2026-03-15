@@ -18,6 +18,7 @@ export 'src/dice_roller.dart';
 export 'src/enums.dart';
 export 'src/extensions.dart';
 export 'src/group_result.dart';
+export 'src/push.dart';
 export 'src/roll_result.dart';
 export 'src/roll_summary.dart';
 export 'src/rolled_die.dart';

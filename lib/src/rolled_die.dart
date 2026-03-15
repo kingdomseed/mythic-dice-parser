@@ -30,6 +30,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     this.totaled = false,
     this.from = const IList.empty(),
     this.groupLabel,
+    this.locked = false,
   }) : potentialValues = IList(potentialValues) {
     if (dieType.requirePotentialValues && potentialValues.isEmpty) {
       throw ArgumentError(
@@ -117,6 +118,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     bool? totaled,
     Iterable<RolledDie>? from,
     String? groupLabel,
+    bool? locked,
   }) => RolledDie(
     potentialValues: other.potentialValues,
     nsides: other.nsides,
@@ -140,6 +142,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     totaled: totaled ?? other.totaled,
     from: IList.orNull(from) ?? IList([other]),
     groupLabel: groupLabel ?? other.groupLabel,
+    locked: locked ?? other.locked,
   );
 
   factory RolledDie.discard(RolledDie other) =>
@@ -230,6 +233,9 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
   /// null if no label was applied.
   final String? groupLabel;
 
+  /// Whether this die is locked (will not be re-rolled during a push).
+  final bool locked;
+
   bool get isMaxResult => result == maxPotentialValue;
 
   bool get isCountable => minPotentialValue != maxPotentialValue;
@@ -258,6 +264,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     penetrated,
     penetrator,
     groupLabel,
+    locked,
   ];
 
   Map<String, dynamic> toJson() =>
@@ -282,6 +289,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
         'penetrated': penetrated,
         'penetrator': penetrator,
         'groupLabel': groupLabel,
+        'locked': locked,
       }..removeWhere(
         (k, v) =>
             v == null ||
@@ -357,6 +365,9 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     if (critFailure) {
       buffer.write('❌');
     }
+    if (locked) {
+      buffer.write('🔒');
+    }
     return buffer.toString();
   }
 
@@ -389,5 +400,6 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
       .if0(reroll.compareTo(other.reroll))
       .if0(rerolled.compareTo(other.rerolled))
       .if0(clampCeiling.compareTo(other.clampCeiling))
-      .if0(clampFloor.compareTo(other.clampFloor));
+      .if0(clampFloor.compareTo(other.clampFloor))
+      .if0(locked.compareTo(other.locked));
 }
