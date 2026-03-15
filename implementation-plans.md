@@ -249,29 +249,11 @@ class CommaOp extends Binary {
 
   /// New behavior for labeled groups: pass through individual dice.
   Future<RollResult> _evalLabeled(RollResult lhs, RollResult rhs) async {
-    final results = <RolledDie>[];
-    final discarded = <RolledDie>[];
-
-    discarded.addAll(lhs.discarded);
-    discarded.addAll(rhs.discarded);
-
-    // Flatten comma children, preserve individual dice for labeled groups
-    if (lhs.opType == OpType.comma) {
-      results.addAll(lhs.results);
-    } else {
-      results.addAll(lhs.results);
-    }
-    if (rhs.opType == OpType.comma) {
-      results.addAll(rhs.results);
-    } else {
-      results.addAll(rhs.results);
-    }
-
     return RollResult(
       expression: toString(),
       opType: OpType.comma,
-      results: results,
-      discarded: discarded,
+      results: [...lhs.results, ...rhs.results],
+      discarded: [...lhs.discarded, ...rhs.discarded],
       left: lhs,
       right: rhs,
     );
@@ -364,9 +346,10 @@ RolledDie({
   this.totaled = false,
   this.from = const IList.empty(),
   this.groupLabel,       // NEW
-  this.tags,             // NEW
 })
 ```
+
+**NOTE: No `tags` field on `RolledDie`.** Per the YAGNI decision above, tags live on `RollResult.tags` only. The `groupLabel` field IS needed on `RolledDie` because it must survive through AST operations (keep/drop/explode) via `copyWith` propagation. Every existing `RolledDie.copyWith` call will automatically propagate `groupLabel` because the factory uses `groupLabel: groupLabel ?? other.groupLabel` — unknown fields default to the source die's value. Tags do not need per-die survival — they are harvested from the `RollResult` tree at `GroupResult` construction time via `_harvestTags()`.
 
 **`copyWith` addition:**
 ```dart
@@ -375,11 +358,9 @@ factory RolledDie.copyWith(
   int? result,
   // ... existing params ...
   String? groupLabel,
-  Map<String, String>? tags,
 }) => RolledDie(
   // ... existing fields ...
   groupLabel: groupLabel ?? other.groupLabel,
-  tags: tags ?? other.tags,
 );
 ```
 
@@ -491,26 +472,27 @@ RollSummary({required this.detailedResults})
 
 static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
   // Only build groups when the expression used labels.
-  // Check if any result die has a groupLabel.
   final hasLabels = detailedResults.results.any((d) => d.groupLabel != null);
   if (!hasLabels) return null;
 
   // Group results by their groupLabel
   final grouped = <String, List<RolledDie>>{};
   final groupedDiscarded = <String, List<RolledDie>>{};
-  final groupTags = <String, Map<String, String>>{};
 
   for (final die in detailedResults.results) {
     final label = die.groupLabel ?? '';
     grouped.putIfAbsent(label, () => []).add(die);
-    if (die.tags != null) {
-      groupTags.putIfAbsent(label, () => {}).addAll(die.tags!);
-    }
   }
   for (final die in detailedResults.discarded) {
     final label = die.groupLabel ?? '';
     groupedDiscarded.putIfAbsent(label, () => []).add(die);
   }
+
+  // Harvest tags from the RollResult tree (set by TagOp on RollResult nodes).
+  // Walk the tree to find nodes with non-null tags and associate them with
+  // the correct group label by checking the groupLabel on their results.
+  final groupTags = <String, Map<String, String>>{};
+  _harvestTags(detailedResults, groupTags);
 
   return {
     for (final label in grouped.keys)
@@ -521,6 +503,24 @@ static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
         tags: groupTags[label],
       ),
   };
+}
+
+/// Walk the RollResult tree to find TagOp-produced nodes with tags.
+/// Associate tags with group labels by inspecting the results of
+/// each tagged node.
+static void _harvestTags(
+  RollResult node,
+  Map<String, Map<String, String>> groupTags,
+) {
+  if (node.tags != null && node.tags!.isNotEmpty) {
+    // Find the group label from this node's results
+    final label = node.results
+        .map((d) => d.groupLabel)
+        .firstWhere((l) => l != null, orElse: () => null) ?? '';
+    groupTags.putIfAbsent(label, () => {}).addAll(node.tags!);
+  }
+  if (node.left != null) _harvestTags(node.left!, groupTags);
+  if (node.right != null) _harvestTags(node.right!, groupTags);
 }
 ```
 
@@ -604,12 +604,14 @@ The following tests rely on the current `CommaOp` behavior of collapsing sub-exp
    });
    ```
 
-5. **Anonymous groups (comma without labels):**
+5. **Anonymous comma (no labels) preserves totalization:**
    ```dart
-   test('anonymous comma groups preserve die identity', () async {
+   test('unlabeled comma preserves totalization behavior', () async {
      final expr = DiceExpression.create('2d6, 1d8', roller: RNGRoller(Random(1234)));
      final result = await expr.roll();
-     expect(result.results.length, 3);
+     // No labels → conditional CommaOp uses _evalTotalized → 2 singleVal totals
+     expect(result.results.length, 2);
+     expect(result.results.every((d) => d.dieType == DieType.singleVal), isTrue);
      // groups is null because no labels
      expect(result.groups, isNull);
    });
