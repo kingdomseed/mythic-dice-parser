@@ -58,16 +58,18 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
       ),
     )
     ..postfix(
-      seq2(char('d').trim(), letter().plus().flatten().trim()).where((v) {
-        // Only match if the name is a registered die type
-        // and is NOT one of the built-in special names (F, %).
-        final name = v.$2.toLowerCase();
+      seq2(char('d').trim(), lowercase().plus().flatten().trim()).where((v) {
+        // Only match lowercase names to avoid shadowing built-in dF/D66.
+        // string('dF') is tried first in this group; if the named die
+        // parser also matched uppercase, 'dFire' would be grabbed by
+        // string('dF') before we get a chance, causing a parse error.
+        // Names are stored lowercase in the registry anyway.
+        final name = v.$2;
         return name != 'f' && DiceExpression.getDieType(name) != null;
       }),
       (a, op) {
-        final name = op.$2.toLowerCase();
-        final faces = DiceExpression.getDieType(name)!;
-        return NamedDice(op.toString(), a, roller, name, IList(faces));
+        final faces = DiceExpression.getDieType(op.$2)!;
+        return NamedDice(op.toString(), a, roller, op.$2, IList(faces));
       },
     );
   builder.group().left(

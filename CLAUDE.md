@@ -126,6 +126,7 @@ example/
 ## Gotchas
 
 - **Label syntax:** The colon goes AFTER the closing quote: `"Attack": 2d6`, NOT `"Attack:" 2d6`. The parser matches `"` + chars + `":` as a unit.
+- **Named dice are lowercase only:** Use `4dfate`, not `4dFate`. The parser uses `lowercase().plus()` to avoid shadowing the built-in `dF` (fudge) and `D66` notation. `string('dF')` is tried first in the same precedence group, so uppercase names starting with F would be consumed by the fudge dice parser and fail. `registerDieType()` stores names in lowercase regardless of input case.
 - **CommaOp dual-mode:** `CommaOp` chooses labeled vs totalized behavior at runtime by inspecting `groupLabel` on dice. This is known architectural debt -- a cleaner design would split into `GroupCommaOp`/`TotalCommaOp` at parse time. The runtime check must inspect both `.results` and `.discarded`.
 - **Tag parser structure:** The `.postfix()` tag parser matches one `@key=value` per application. Multi-tag (`@a=1 @b=2`) works because PetitParser's `ExpressionBuilder.star()` re-applies the postfix, creating nested `TagOp` nodes. `TagOp` merges via `{...?result.tags, ...tags}`.
 - **`PreRolledDiceRoller` validates ranges:** Passing a value outside the die's range (e.g., `7` for a d6) throws `RangeError`. Values are consumed in parser-request order -- exploding/compounding dice consume extra values unpredictably.

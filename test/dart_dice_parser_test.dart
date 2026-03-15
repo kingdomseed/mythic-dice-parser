@@ -1295,6 +1295,34 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('named dice require lowercase to avoid shadowing dF/D66', () async {
+      // Named dice use lowercase().plus() in the parser to avoid
+      // conflicting with built-in string('dF') and string('D66'),
+      // which are tried first in the same precedence group.
+      DiceExpression.registerDieType('fire', [1, 2, 3, 4, 5, 6]);
+      try {
+        // Lowercase works
+        final dice = DiceExpression.create(
+          '2dfire',
+          roller: PreRolledDiceRoller([3, 5]),
+        );
+        final summary = await dice.roll();
+        expect(summary.total, equals(8));
+
+        // Uppercase is rejected — parser doesn't match uppercase names,
+        // preventing string('dF') from shadowing names starting with F.
+        expect(
+          () => DiceExpression.create(
+            '2dFire',
+            roller: PreRolledDiceRoller([3, 5]),
+          ),
+          throwsFormatException,
+        );
+      } finally {
+        DiceExpression.unregisterDieType('fire');
+      }
+    });
   });
 
   group('push/reroll', () {

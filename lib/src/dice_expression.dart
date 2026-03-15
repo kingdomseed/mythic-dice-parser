@@ -59,7 +59,11 @@ abstract class DiceExpression {
 
   /// Register a named die type for use in expressions.
   ///
-  /// After registration, expressions can reference the die by name:
+  /// After registration, expressions can reference the die by name.
+  /// Names are stored and matched in **lowercase only** — this avoids
+  /// parser conflicts with built-in `dF` (fudge) and `D66` notation.
+  /// Always use lowercase in expressions: `4dfate`, not `4dFate`.
+  ///
   /// ```dart
   /// DiceExpression.registerDieType('fate', [-1, -1, 0, 0, 1, 1]);
   /// final expr = DiceExpression.create('4dfate');

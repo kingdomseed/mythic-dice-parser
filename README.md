@@ -145,6 +145,7 @@ void main() {
   * `DiceExpression.registerDieType('fate', [-1, -1, 0, 0, 1, 1])` -- register a custom die
   * `4dfate` -- roll 4 of the registered "fate" dice
   * Names must contain only letters (no digits/spaces) and cannot be `f` or `F` (reserved for fudge dice)
+  * **Names must be lowercase in expressions** -- `4dfate`, not `4dFate`. This avoids parser conflicts with built-in `dF` (fudge) and `D66` notation.
 
 * arithmetic operations
   * parenthesis to force a certain order of operations
