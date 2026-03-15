@@ -263,6 +263,7 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
     clampFloor,
     penetrated,
     penetrator,
+    totaled,
     groupLabel,
     locked,
   ];
@@ -389,7 +390,6 @@ class RolledDie extends Equatable implements Comparable<RolledDie> {
       .if0(nsides.compareTo(other.nsides))
       .if0(discarded.compareTo(other.discarded))
       .if0(success.compareTo(other.success))
-      .if0(failure.compareTo(other.failure))
       .if0(failure.compareTo(other.failure))
       .if0(critSuccess.compareTo(other.critSuccess))
       .if0(critFailure.compareTo(other.critFailure))

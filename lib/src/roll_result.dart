@@ -127,7 +127,6 @@ class RollResult extends Equatable {
     opType,
     results,
     discarded,
-    opType,
     tags,
     //left,
     //right,
@@ -178,6 +177,7 @@ class RollResult extends Equatable {
         'failureCount': failureCount,
         'critSuccessCount': critSuccessCount,
         'critFailureCount': critFailureCount,
+        'tags': tags,
       }..removeWhere(
         (k, v) =>
             v == null ||
