@@ -1718,5 +1718,26 @@ void main() {
         );
       });
     });
+
+    group('tags on unlabeled expressions', () {
+      test('tags without labels are on detailedResults, not groups', () async {
+        // Sentry claim: unlabeled tags are inaccessible.
+        // Reality: groups is null (correct — no labels), but tags are
+        // accessible on the detailedResults RollResult tree, which is
+        // the documented way to access the full result structure.
+        final dice = DiceExpression.create(
+          '2d6 @type=fire',
+          roller: PreRolledDiceRoller([3, 4]),
+        );
+        final summary = await dice.roll();
+
+        // No labels → no groups (by design)
+        expect(summary.groups, isNull);
+
+        // Tags are on the RollResult tree — accessible via detailedResults
+        expect(summary.detailedResults.tags, isNotNull);
+        expect(summary.detailedResults.tags!['type'], equals('fire'));
+      });
+    });
   });
 }
