@@ -53,6 +53,38 @@ class CommaOp extends Binary {
     final lhs = await left();
     final rhs = await right();
 
+    // Check if any child has labeled dice (from LabelOp).
+    // Must check both results and discarded — if all dice in a labeled group
+    // are discarded (e.g., keep-0), results is empty but discarded carries
+    // the labels. Without this, we'd incorrectly fall through to totalized
+    // mode and destroy group identity.
+    final hasLabels =
+        lhs.results.any((d) => d.groupLabel != null) ||
+        lhs.discarded.any((d) => d.groupLabel != null) ||
+        rhs.results.any((d) => d.groupLabel != null) ||
+        rhs.discarded.any((d) => d.groupLabel != null);
+
+    if (hasLabels) {
+      // Labeled mode: preserve individual die identity within groups.
+      return _evalLabeled(lhs, rhs);
+    } else {
+      // Unlabeled mode: existing totalization behavior (backward compatible).
+      return _evalTotalized(lhs, rhs);
+    }
+  }
+
+  /// New behavior for labeled groups: pass through individual dice.
+  RollResult _evalLabeled(RollResult lhs, RollResult rhs) => RollResult(
+    expression: toString(),
+    opType: OpType.comma,
+    results: [...lhs.results, ...rhs.results],
+    discarded: [...lhs.discarded, ...rhs.discarded],
+    left: lhs,
+    right: rhs,
+  );
+
+  /// Existing behavior: collapse each sub-expression to a singleVal total.
+  RollResult _evalTotalized(RollResult lhs, RollResult rhs) {
     final results = <RolledDie>[];
     final discarded = <RolledDie>[];
 
@@ -156,6 +188,64 @@ class SimpleValue extends DiceExpression {
 
   @override
   String toString() => value;
+}
+
+/// Wraps a sub-expression with a label.
+/// In the expression `"Attack:" 2d6!`, the label is "Attack" and the
+/// sub-expression is `2d6!`.
+class LabelOp extends Unary {
+  LabelOp(this.label, DiceExpression child) : super('label', child);
+
+  final String label;
+
+  @override
+  String toString() => '"$label:" $left';
+
+  @override
+  Future<RollResult> eval() async {
+    final result = await left();
+    // Stamp groupLabel onto all results
+    return RollResult.fromRollResult(
+      result,
+      expression: toString(),
+      opType: result.opType,
+      results: result.results.map(
+        (d) => RolledDie.copyWith(d, groupLabel: label),
+      ),
+      discarded: result.discarded.map(
+        (d) => RolledDie.copyWith(d, groupLabel: label),
+      ),
+    );
+  }
+}
+
+/// Wraps a sub-expression with tags (key-value metadata).
+/// In the expression `2d6 @color=red`, the tag is {color: red}.
+/// Tags are stored on the RollResult node, NOT on individual RolledDie objects.
+/// GroupResult picks them up when building groups from the result tree.
+class TagOp extends Unary {
+  TagOp(DiceExpression child, this.tags) : super('tag', child);
+
+  final Map<String, String> tags;
+
+  @override
+  String toString() {
+    final tagStr = tags.entries.map((e) => '@${e.key}=${e.value}').join(' ');
+    return '$left $tagStr';
+  }
+
+  @override
+  Future<RollResult> eval() async {
+    final result = await left();
+    // Store tags on the RollResult node (not individual dice).
+    // GroupResult will pick these up from the result tree.
+    return RollResult.fromRollResult(
+      result,
+      expression: toString(),
+      opType: result.opType,
+      tags: {...?result.tags, ...tags},
+    );
+  }
 }
 
 class AggregateOp extends DiceOp {

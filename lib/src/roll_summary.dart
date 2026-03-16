@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 
 import 'extensions.dart';
+import 'group_result.dart';
 import 'roll_result.dart';
 import 'rolled_die.dart';
 
@@ -26,7 +27,8 @@ class RollSummary extends Equatable {
       successCount = detailedResults.results.successCount,
       failureCount = detailedResults.results.failureCount,
       critSuccessCount = detailedResults.results.critSuccessCount,
-      critFailureCount = detailedResults.results.critFailureCount;
+      critFailureCount = detailedResults.results.critFailureCount,
+      groups = _unmodifiable(_buildGroups(detailedResults));
 
   final RollResult detailedResults;
 
@@ -46,6 +48,10 @@ class RollSummary extends Equatable {
   /// the dice we lost along the way
   late final IList<RolledDie> discarded;
 
+  /// Per-group results, populated when the expression uses label syntax.
+  /// null when no labels/commas are used (plain expressions like "2d6+4").
+  final Map<String, GroupResult>? groups;
+
   @override
   List<Object?> get props => [
     total,
@@ -56,6 +62,7 @@ class RollSummary extends Equatable {
     expression,
     results,
     discarded,
+    groups,
   ];
 
   @override
@@ -96,6 +103,7 @@ class RollSummary extends Equatable {
         'results': results.map((e) => e.toJson()).toList(growable: false),
         'discarded': discarded.map((e) => e.toJson()).toList(growable: false),
         'detailedResults': detailedResults.toJson(),
+        'groups': groups?.map((k, v) => MapEntry(k, v.toJson())),
       }..removeWhere(
         (k, v) =>
             v == null ||
@@ -113,5 +121,72 @@ class RollSummary extends Equatable {
       ..write(detailedResults.toStringPretty(indent: '  '));
 
     return buffer.toString();
+  }
+
+  static Map<String, T>? _unmodifiable<T>(Map<String, T>? map) =>
+      map != null ? Map.unmodifiable(map) : null;
+
+  static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
+    // Only build groups when the expression used labels.
+    final hasLabels =
+        detailedResults.results.any((d) => d.groupLabel != null) ||
+        detailedResults.discarded.any((d) => d.groupLabel != null);
+    if (!hasLabels) return null;
+
+    // Group results by their groupLabel
+    final grouped = <String, List<RolledDie>>{};
+    final groupedDiscarded = <String, List<RolledDie>>{};
+
+    for (final die in detailedResults.results) {
+      final label = die.groupLabel ?? '';
+      grouped.putIfAbsent(label, () => []).add(die);
+    }
+    for (final die in detailedResults.discarded) {
+      final label = die.groupLabel ?? '';
+      groupedDiscarded.putIfAbsent(label, () => []).add(die);
+    }
+
+    // Harvest tags from the RollResult tree (set by TagOp on RollResult nodes).
+    final groupTags = <String, Map<String, String>>{};
+    _harvestTags(detailedResults, groupTags);
+
+    final allLabels = {...grouped.keys, ...groupedDiscarded.keys};
+    return {
+      for (final label in allLabels)
+        label: GroupResult(
+          label: label,
+          results: grouped[label] ?? [],
+          discarded: groupedDiscarded[label] ?? [],
+          tags: groupTags[label],
+        ),
+    };
+  }
+
+  /// Walk the RollResult tree to find TagOp-produced nodes with tags.
+  /// Associate tags with group labels by inspecting the results of
+  /// each tagged node.
+  static void _harvestTags(
+    RollResult node,
+    Map<String, Map<String, String>> groupTags,
+  ) {
+    if (node.tags != null && node.tags!.isNotEmpty) {
+      // Find all distinct group labels from this node's results AND
+      // discarded dice. When all dice are discarded (e.g., keep-0),
+      // results is empty but discarded carries the labels.
+      final labels = {
+        ...node.results.map((d) => d.groupLabel).whereType<String>(),
+        ...node.discarded.map((d) => d.groupLabel).whereType<String>(),
+      };
+      if (labels.isEmpty) {
+        // No labels found; assign to the anonymous group.
+        groupTags.putIfAbsent('', () => {}).addAll(node.tags!);
+      } else {
+        for (final label in labels) {
+          groupTags.putIfAbsent(label, () => {}).addAll(node.tags!);
+        }
+      }
+    }
+    if (node.left != null) _harvestTags(node.left!, groupTags);
+    if (node.right != null) _harvestTags(node.right!, groupTags);
   }
 }

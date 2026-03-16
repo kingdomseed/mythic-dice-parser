@@ -15,8 +15,10 @@ class RollResult extends Equatable {
     Iterable<RolledDie> discarded = const IList.empty(),
     this.left,
     this.right,
+    Map<String, String>? tags,
   }) : results = IList(results),
-       discarded = IList(discarded);
+       discarded = IList(discarded),
+       tags = tags != null ? Map.unmodifiable(tags) : null;
 
   /// factory constructor to merge [other] with the params of this function
   /// and produce a new [RollResult].
@@ -28,6 +30,7 @@ class RollResult extends Equatable {
     Iterable<RolledDie>? discarded,
     RollResult? left,
     RollResult? right,
+    Map<String, String>? tags,
   }) => RollResult(
     expression: expression,
     opType: opType ?? other.opType,
@@ -35,6 +38,7 @@ class RollResult extends Equatable {
     discarded: IList.orNull(discarded) ?? other.discarded,
     left: left ?? other.left,
     right: right ?? other.right,
+    tags: tags ?? other.tags,
   );
 
   /// addition operator for [RollResult].
@@ -104,6 +108,9 @@ class RollResult extends Equatable {
 
   final OpType opType;
 
+  /// Client-defined tags from @key=value syntax. Set by TagOp.
+  final Map<String, String>? tags;
+
   /// sum of [results]
   int get total => totalOrDefault(() => 0);
 
@@ -121,7 +128,7 @@ class RollResult extends Equatable {
     opType,
     results,
     discarded,
-    opType,
+    tags,
     //left,
     //right,
   ];
@@ -171,6 +178,7 @@ class RollResult extends Equatable {
         'failureCount': failureCount,
         'critSuccessCount': critSuccessCount,
         'critFailureCount': critFailureCount,
+        'tags': tags,
       }..removeWhere(
         (k, v) =>
             v == null ||

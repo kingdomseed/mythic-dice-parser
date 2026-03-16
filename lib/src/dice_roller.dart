@@ -49,7 +49,7 @@ abstract class DiceRoller {
 ///
 /// This is useful when dice are rolled externally (physical dice, 3D dice, etc)
 /// and you want to feed those results into the parser to produce a normal
-/// [RollSummary] and detailed result tree.
+/// `RollSummary` and detailed result tree.
 ///
 /// Values are consumed in the order the parser requests rolls. If the parser
 /// requests more values than are available, a

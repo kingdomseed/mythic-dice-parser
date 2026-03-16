@@ -1,3 +1,4 @@
+import 'package:fast_immutable_collections/fast_immutable_collections.dart';
 import 'package:petitparser/petitparser.dart';
 
 import 'ast_core.dart';
@@ -10,7 +11,11 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
   final builder = ExpressionBuilder<DiceExpression>();
   // numbers
   builder.primitive(
-    digit().star().flatten('integer expected').trim().map(SimpleValue.new),
+    digit()
+        .star()
+        .flatten(message: 'integer expected')
+        .trim()
+        .map(SimpleValue.new),
   );
   // parens & curlies
   builder.group()
@@ -51,6 +56,21 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
         nsides: op.$2,
         nsidesPenetration: op.$4,
       ),
+    )
+    ..postfix(
+      seq2(char('d').trim(), lowercase().plus().flatten().trim()).where((v) {
+        // Only match lowercase names to avoid shadowing built-in dF/D66.
+        // string('dF') is tried first in this group; if the named die
+        // parser also matched uppercase, 'dFire' would be grabbed by
+        // string('dF') before we get a chance, causing a parse error.
+        // Names are stored lowercase in the registry anyway.
+        final name = v.$2;
+        return name != 'f' && DiceExpression.getDieType(name) != null;
+      }),
+      (a, op) {
+        final faces = DiceExpression.getDieType(op.$2)!;
+        return NamedDice(op.toString(), a, roller, op.$2, IList(faces));
+      },
     );
   builder.group().left(
     char('d').trim(),
@@ -133,6 +153,27 @@ Parser<DiceExpression> parserBuilder(DiceResultRoller roller) {
     ..postfix(
       (char('s') & char('d').optional()).flatten().trim(),
       (a, op) => SortOp(op.toLowerCase(), a),
+    );
+
+  // Labels, tags, and comma — lower precedence than count/sort so that
+  // each sub-expression gets scored before comma joins them.
+  builder.group()
+    ..prefix(
+      seq3(
+        char('"'),
+        pattern('^"').star().flatten(),
+        string('":').trim(),
+      ).map((v) => v.$2),
+      LabelOp.new,
+    )
+    ..postfix(
+      seq4(
+        char('@'),
+        letter().plus().flatten(),
+        char('='),
+        pattern('^ ,)').plus().flatten(),
+      ).trim(),
+      (a, tag) => TagOp(a, {tag.$2: tag.$4}),
     )
     ..left(char(',').trim(), (a, op, b) => CommaOp(op, a, b));
   return builder.build().end();
