@@ -1702,5 +1702,21 @@ void main() {
         },
       );
     });
+
+    group('immutability', () {
+      test('groups map is unmodifiable', () async {
+        final dice = DiceExpression.create(
+          '"A": 1d6, "B": 1d6',
+          roller: PreRolledDiceRoller([3, 4]),
+        );
+        final summary = await dice.roll();
+        expect(summary.groups, isNotNull);
+        expect(
+          () => summary.groups!['C'] = summary.groups!['A']!,
+          throwsUnsupportedError,
+          reason: 'groups map should be unmodifiable',
+        );
+      });
+    });
   });
 }

@@ -28,7 +28,7 @@ class RollSummary extends Equatable {
       failureCount = detailedResults.results.failureCount,
       critSuccessCount = detailedResults.results.critSuccessCount,
       critFailureCount = detailedResults.results.critFailureCount,
-      groups = _buildGroups(detailedResults);
+      groups = _unmodifiable(_buildGroups(detailedResults));
 
   final RollResult detailedResults;
 
@@ -122,6 +122,9 @@ class RollSummary extends Equatable {
 
     return buffer.toString();
   }
+
+  static Map<String, T>? _unmodifiable<T>(Map<String, T>? map) =>
+      map != null ? Map.unmodifiable(map) : null;
 
   static Map<String, GroupResult>? _buildGroups(RollResult detailedResults) {
     // Only build groups when the expression used labels.
